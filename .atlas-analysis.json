@@ -1,0 +1,102 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "Dotfiles Manager",
+  "projectDescription": "A comprehensive dotfiles management system using chezmoi, Ansible, and Bitwarden for portable Linux and WSL environments.",
+  "theme": "aspen",
+  "primaryColor": "#2E7D32",
+  "lightColor": "#66BB6A",
+  "darkColor": "#1B5E20",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "quickstart",
+          "installation"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "concepts/architecture",
+          "concepts/chezmoi",
+          "concepts/ansible",
+          "concepts/secrets"
+        ]
+      },
+      {
+        "group": "Configuration",
+        "pages": [
+          "configuration/machine-types",
+          "configuration/shell-customization",
+          "configuration/git-config",
+          "configuration/aws-setup"
+        ]
+      },
+      {
+        "group": "Ansible Automation",
+        "pages": [
+          "ansible/overview",
+          "ansible/adding-software",
+          "ansible/roles",
+          "ansible/gnome-settings"
+        ]
+      },
+      {
+        "group": "Secrets Management",
+        "pages": [
+          "secrets/bitwarden-setup",
+          "secrets/age-encryption",
+          "secrets/ssh-keys",
+          "secrets/environment-variables"
+        ]
+      },
+      {
+        "group": "Platform Support",
+        "pages": [
+          "platforms/linux",
+          "platforms/wsl",
+          "platforms/compatibility"
+        ]
+      },
+      {
+        "group": "Development",
+        "pages": [
+          "development/testing",
+          "development/ci-cd",
+          "development/contributing"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/bootstrap-script",
+          "reference/directory-structure",
+          "reference/shell-aliases",
+          "reference/troubleshooting"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "One-command bootstrap for fresh machine setup",
+    "Secure secrets management with Bitwarden and age encryption",
+    "Data-driven Ansible package management",
+    "Hybrid work/personal environment support",
+    "WSL and Linux native compatibility",
+    "Idempotent and tested automation",
+    "Conditional Git configuration for multiple identities",
+    "GNOME desktop customization"
+  ],
+  "publicApiSurface": [
+    "bootstrap.sh - Initial setup script",
+    "chezmoi init --apply - Apply dotfiles",
+    "aws_env() - Switch AWS profiles",
+    "bw_unlock() - Unlock Bitwarden vault",
+    "ansible-playbook site.yml - Run system configuration",
+    "chezmoi edit - Edit configuration files",
+    "chezmoi diff - Preview changes",
+    "chezmoi apply - Apply dotfile changes"
+  ]
+}
