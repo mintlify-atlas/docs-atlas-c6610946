@@ -1,0 +1,202 @@
+---
+title: AWS Setup
+description: AWS credentials management with Bitwarden integration
+---
+
+## Overview
+
+AWS credentials are automatically configured on `work` and `hybrid` machines by pulling secrets from Bitwarden.
+
+## Prerequisites
+
+- Bitwarden CLI (`bw`) installed
+- Bitwarden vault unlocked
+- AWS credentials stored in Bitwarden as an item named `AWS {work_email}`
+
+## Required Bitwarden Fields
+
+Your Bitwarden item must have these custom fields:
+
+- **Access key**: AWS access key ID
+- **Secret access key**: AWS secret access key
+- **Region**: Default AWS region (e.g., `us-east-1`)
+
+## AWS Config Template
+
+Configuration file pulled from Bitwarden:
+
+```ini dot_aws/private_config.tmpl
+{{- if or (eq .machine_type "work") (eq .machine_type "hybrid") -}}
+[profile nowtech]
+region = {{ (bitwardenFields "item" (print "AWS " .work_email)).Region }}
+output = json
+{{ "\n" }}
+{{- end -}}
+```
+
+This creates `~/.aws/config` with the region from Bitwarden.
+
+## AWS Credentials Template
+
+Credentials file pulled from Bitwarden:
+
+```ini dot_aws/private_credentials.tmpl
+{{- if or (eq .machine_type "work") (eq .machine_type "hybrid") -}}
+[nowtech]
+aws_access_key_id = {{ index (bitwardenFields "item" (print "AWS " .work_email)) "Access key" }}
+aws_secret_access_key = {{ index (bitwardenFields "item" (print "AWS " .work_email)) "Secret access key" }}
+{{ end -}}
+{{ "" }}
+```
+
+This creates `~/.aws/credentials` with access keys from Bitwarden.
+
+## Bitwarden Item Lookup
+
+The item name is dynamically constructed:
+
+```go-template
+(print "AWS " .work_email)
+```
+
+For example, if `work_email` is `julio@company.com`, it looks for an item named:
+```
+AWS julio@company.com
+```
+
+## How It Works
+
+1. During `chezmoi init`, you're prompted for work email (if work/hybrid machine)
+2. Chezmoi uses `bitwardenFields` function to fetch fields from Bitwarden
+3. Access keys, secret keys, and region are pulled from custom fields
+4. Files are templated and placed in `~/.aws/config` and `~/.aws/credentials`
+5. Files are marked as `private_` (encrypted with age)
+
+## Switching AWS Profiles
+
+Use the `aws_env` function to switch between profiles:
+
+```bash
+# Export nowtech profile credentials as environment variables
+aws_env nowtech
+```
+
+This function:
+- Validates the profile exists
+- Exports `AWS_PROFILE`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`
+- Displays all exported AWS environment variables
+
+## AWS Environment Function
+
+From `dot_bash_functions`:
+
+```bash
+aws_env() {
+profiles=$(aws configure list-profiles)
+if echo "${profiles[@]:0}" | grep -q "^$1$" ; then
+   AWS_ACCESS_KEY_ID=$(aws configure get aws_access_key_id --profile "$1");
+   AWS_SECRET_ACCESS_KEY=$(aws configure get aws_secret_access_key --profile "$1");
+   AWS_DEFAULT_REGION=$(aws configure get region --profile "$1");
+   export AWS_PROFILE=$1
+   export AWS_ACCESS_KEY_ID
+   export AWS_SECRET_ACCESS_KEY
+   export AWS_DEFAULT_REGION
+   echo "$1 environment variables exported";
+   env | grep AWS_ | sort
+else
+   echo "profile '$1' not found"
+   echo "profiles availables:"
+   echo "${profiles[@]:0}"
+fi
+}
+```
+
+## Bitwarden Session Management
+
+Unlock Bitwarden before running `chezmoi apply`:
+
+```bash
+# Unlock and export session
+bw_unlock
+
+# Check Bitwarden status
+bw_status
+
+# Apply chezmoi templates (will pull from Bitwarden)
+chezmoi apply
+```
+
+## Security Features
+
+### Encrypted Storage
+
+AWS files are encrypted with age:
+- Prefix `private_` tells chezmoi to encrypt the file
+- Only decrypted when applied to the home directory
+- Source files in chezmoi remain encrypted in the repository
+
+### File Permissions
+
+AWS credentials files are created with restrictive permissions:
+```bash
+~/.aws/config       # Standard permissions
+~/.aws/credentials  # Restricted permissions (600)
+```
+
+## Adding Additional Profiles
+
+To add more AWS profiles, edit the templates:
+
+```ini dot_aws/private_config.tmpl
+[profile nowtech]
+region = {{ (bitwardenFields "item" (print "AWS " .work_email)).Region }}
+output = json
+
+[profile another-profile]
+region = us-west-2
+output = json
+```
+
+```ini dot_aws/private_credentials.tmpl
+[nowtech]
+aws_access_key_id = {{ index (bitwardenFields "item" (print "AWS " .work_email)) "Access key" }}
+aws_secret_access_key = {{ index (bitwardenFields "item" (print "AWS " .work_email)) "Secret access key" }}
+
+[another-profile]
+aws_access_key_id = {{ index (bitwardenFields "item" "AWS another-account") "Access key" }}
+aws_secret_access_key = {{ index (bitwardenFields "item" "AWS another-account") "Secret access key" }}
+```
+
+## Troubleshooting
+
+### Bitwarden Not Unlocked
+
+```bash
+# Error: "Bitwarden vault is locked"
+bw_unlock
+```
+
+### Item Not Found
+
+```bash
+# Verify item exists in Bitwarden
+bw list items | grep "AWS"
+
+# Check exact item name
+bw get item "AWS julio@company.com"
+```
+
+### Missing Custom Fields
+
+Ensure your Bitwarden item has custom fields with exact names:
+- `Access key` (not "access_key" or "AccessKey")
+- `Secret access key` (not "secret_access_key")
+- `Region` (not "region")
+
+## Personal Machines
+
+AWS configuration is **not** applied to personal machines. The templates only generate files when:
+
+```go-template
+{{- if or (eq .machine_type "work") (eq .machine_type "hybrid") -}}
+```

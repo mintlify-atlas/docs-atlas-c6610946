@@ -1,80 +1,199 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Get your dotfiles up and running in minutes
 ---
 
-## Get started in three steps
+## One-Command Bootstrap
 
-Get your documentation site running locally and make your first customization.
+On a fresh Ubuntu machine or WSL instance, you can bootstrap your entire development environment with a single command:
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Install curl">
+    First, ensure curl is available on your system:
+
+    ```bash
+    sudo apt update && sudo apt install -y curl
+    ```
+  </Step>
+
+  <Step title="Run the bootstrap script">
+    Download and execute the bootstrap script directly from GitHub:
+
+    ```bash
+    bash -c "$(curl -fsLS https://raw.githubusercontent.com/yurgenlira/dotfiles/main/bootstrap.sh)"
+    ```
+
+    <Note>
+      **Do not run this script as root.** It will prompt for your password when needed for package installation.
+    </Note>
+
+    The bootstrap script automatically:
+    - Installs all dependencies (ansible, age, bw, chezmoi)
+    - Logs you into Bitwarden and unlocks your vault
+    - Retrieves (or generates) your age encryption key
+    - Prepares your system for dotfiles initialization
+  </Step>
+
+  <Step title="Initialize and apply dotfiles">
+    Once bootstrap completes, initialize chezmoi with your GitHub username:
+
+    ```bash
+    chezmoi init --apply yurgenlira
+    ```
+
+    Replace `yurgenlira` with your own GitHub username to use your fork.
+
+    <Warning>
+      During initialization, you'll be prompted to answer questions about your environment:
+      - Your name
+      - Machine type (personal/work/hybrid)
+      - Operating system
+      - Default editor
+      - Email addresses (based on machine type)
+    </Warning>
+  </Step>
+</Steps>
+
+## What Happens During Bootstrap?
+
+The `bootstrap.sh` script performs the following operations in order:
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+  <Accordion title="1. Dependency Installation" icon="download">
+    ```bash
+    # Update package lists
+    sudo apt-get update
+    sudo apt-get install -y curl git age gnupg software-properties-common snapd
+    ```
+
+    Installs essential tools needed for the dotfiles system.
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+
+  <Accordion title="2. Ansible Installation" icon="server">
+    ```bash
+    # Add Ansible PPA and install
+    sudo add-apt-repository --yes --update ppa:ansible/ansible
+    sudo apt-get install -y ansible
+    ```
+
+    Ansible handles system configuration and package management.
+  </Accordion>
+
+  <Accordion title="3. Bitwarden CLI Installation" icon="key">
+    ```bash
+    # Install via snap (preferred) or npm fallback
+    sudo snap install bw
+    ```
+
+    Bitwarden CLI manages secrets like SSH keys and AWS credentials.
+  </Accordion>
+
+  <Accordion title="4. chezmoi Installation" icon="files">
+    ```bash
+    # Install via snap (preferred) or install script fallback
+    sudo snap install chezmoi --classic
+    ```
+
+    chezmoi manages your dotfiles with templating and encryption support.
+  </Accordion>
+
+  <Accordion title="5. Bitwarden Authentication" icon="lock">
+    The script logs you into Bitwarden and unlocks your vault:
+
+    ```bash
+    bw login
+    BW_SESSION=$(bw unlock --raw)
+    export BW_SESSION
+    bw sync
+    ```
+
+    You'll be prompted for your Bitwarden credentials during this step.
+  </Accordion>
+
+  <Accordion title="6. Age Key Setup" icon="fingerprint">
+    ```bash
+    mkdir -p "$HOME/.config/chezmoi"
+    # Try to retrieve from Bitwarden
+    bw get notes "chezmoi-age-key" > "$HOME/.config/chezmoi/key.txt"
+    # Or generate new key if not found
+    age-keygen -o "$HOME/.config/chezmoi/key.txt"
+    chmod 600 "$HOME/.config/chezmoi/key.txt"
+    ```
+
+    Retrieves your age encryption key from Bitwarden or generates a new one.
+
+    <Warning>
+      If a new key is generated, you'll see a message to save it in Bitwarden as a Secure Note named `chezmoi-age-key`. **Do this immediately** to avoid losing access to encrypted files.
+    </Warning>
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
+## What Gets Automated?
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+After running `chezmoi init --apply`, your system will be fully configured:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+### System Packages
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Base Packages" icon="box">
+    Essential CLI tools like curl, git, htop, jq, and more
+  </Card>
+  <Card title="Development Tools" icon="code">
+    Terraform, docker, build tools, and language runtimes
+  </Card>
+  <Card title="Desktop Applications" icon="browser">
+    Google Chrome, VS Code, and productivity applications
+  </Card>
+  <Card title="System Utilities" icon="wrench">
+    antigravity, snapd, and system management tools
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+### Configuration Files
+
+- **Shell Environment**: `~/.bashrc`, `~/.bash_aliases` with custom functions
+- **Git Config**: `~/.gitconfig` with conditional work/personal identities
+- **SSH Config**: `~/.ssh/config` (encrypted with age)
+- **AWS Credentials**: `~/.aws/credentials` and `~/.aws/config` (from Bitwarden)
+
+### GNOME Desktop Settings
+
+- Dark mode enabled by default
+- Custom clock format (show date, hide seconds)
+- Power management (disable sleep on AC power)
+
+## Verify Your Setup
+
+After initialization, verify everything is working:
+
+```bash
+# Check chezmoi status
+chezmoi status
+
+# Verify age key permissions
+ls -la ~/.config/chezmoi/key.txt
+# Should show: -rw------- (600)
+
+# Check installed packages
+which ansible age bw chezmoi
+
+# View applied dotfiles
+chezmoi managed
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Customize Configuration" icon="gear" href="/configuration/machine-types">
+    Learn how to add packages, modify settings, and customize your environment
+  </Card>
+  <Card title="Secrets Management" icon="key" href="/secrets/bitwarden-setup">
+    Understand how to manage SSH keys, AWS credentials, and encrypted files
+  </Card>
+  <Card title="Troubleshooting" icon="bug" href="/reference/troubleshooting">
+    Common issues and solutions for bootstrap and initialization
+  </Card>
+  <Card title="Advanced Usage" icon="wand-magic-sparkles" href="/ansible/adding-software">
+    Deep dive into chezmoi templates, Ansible customization, and testing
+  </Card>
+</CardGroup>

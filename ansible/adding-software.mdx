@@ -1,0 +1,144 @@
+---
+title: Adding Software Packages
+description: How to add new software to your automated system configuration
+---
+
+Adding new software to your dotfiles is simple and follows a data-driven approach. You don't need to create new Ansible roles - just update the centralized lists in `ansible/group_vars/all.yml`.
+
+## Standard APT Packages
+
+For packages available in Ubuntu's default repositories:
+
+1. Open `ansible/group_vars/all.yml`
+2. Add the package name to the `workstation_packages` list
+
+```yaml
+workstation_packages:
+  - curl
+  - git
+  - htop
+  - jq
+  - nano
+  - your-new-package  # Add here
+```
+
+## Packages from External Repositories
+
+For software that requires a custom APT repository (like Chrome, VSCode, or Hashicorp tools):
+
+### Step 1: Add Repository Configuration
+
+Add the repository to the `external_repositories` list in `ansible/group_vars/all.yml`:
+
+```yaml
+external_repositories:
+  - name: your-repo-name
+    key_url: https://example.com/signing-key.gpg
+    repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/your-repo.gpg] https://example.com/apt stable main"
+    keyring: /usr/share/keyrings/your-repo.gpg
+```
+
+**Required fields:**
+- `name`: Unique identifier for the repository
+- `key_url`: URL to the GPG signing key
+- `repo`: The APT repository line (must include `signed-by` path)
+- `keyring`: Where to store the de-armored GPG key
+
+### Step 2: Add Package Name
+
+Add the package to the `workstation_packages` list:
+
+```yaml
+workstation_packages:
+  - your-package-from-external-repo
+```
+
+## Current External Repositories
+
+The following external repositories are already configured:
+
+```yaml
+external_repositories:
+  - name: antigravity
+    key_url: https://us-central1-apt.pkg.dev/doc/repo-signing-key.gpg
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/antigravity-repo-key.gpg] https://us-central1-apt.pkg.dev/projects/antigravity-auto-updater-dev/ antigravity-debian main"
+    keyring: /etc/apt/keyrings/antigravity-repo-key.gpg
+  - name: google-chrome
+    key_url: https://dl.google.com/linux/linux_signing_key.pub
+    repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main"
+    keyring: /usr/share/keyrings/google-chrome.gpg
+  - name: hashicorp
+    key_url: https://apt.releases.hashicorp.com/gpg
+    repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_facts['distribution_release'] }} main"
+    keyring: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+  - name: vscode
+    key_url: https://packages.microsoft.com/keys/microsoft.asc
+    repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/code stable main"
+    keyring: /usr/share/keyrings/microsoft.gpg
+```
+
+## Currently Installed Packages
+
+```yaml
+workstation_packages:
+  - antigravity
+  - code
+  - curl
+  - git
+  - gnome-browser-connector
+  - google-chrome-stable
+  - htop
+  - jq
+  - nano
+  - plocate
+  - python3-psutil
+  - terraform
+  - unzip
+```
+
+## Snap Packages
+
+For Snap packages, add them to the `snap_packages` list:
+
+```yaml
+snap_packages:
+  - name: aws-cli
+    classic: true
+  - name: your-snap-package
+    classic: false  # Set to true for classic confinement
+```
+
+## How the Common Role Processes Repositories
+
+The `common` role automatically handles repository setup:
+
+1. **Creates keyring directories** - Ensures `/etc/apt/keyrings/` or `/usr/share/keyrings/` exists
+2. **Downloads and de-armors GPG keys** - Fetches keys from `key_url` and converts them to binary format
+3. **Adds repository** - Configures APT source list
+4. **Installs packages** - Updates cache and installs all listed packages
+
+From `ansible/roles/common/tasks/main.yml`:
+
+```yaml
+- name: Download and de-armor repository keys
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL {{ item.key_url }} | gpg --dearmor --yes -o {{ item.keyring }}
+  args:
+    creates: "{{ item.keyring }}"
+    executable: /bin/bash
+  loop: "{{ external_repositories }}"
+```
+
+## Testing
+
+After adding packages, update the test file:
+
+```bash
+# Update tests/test-packages.sh
+# Add tests for new binaries/packages
+```
+
+<Warning>
+Never create a new Ansible role just to install a package. Use the data-driven approach with `group_vars/all.yml` instead.
+</Warning>

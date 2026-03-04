@@ -1,0 +1,292 @@
+---
+title: Repository Structure
+description: Complete directory layout and file organization
+---
+
+This page documents the complete structure of the dotfiles repository, explaining the purpose of each directory and key files.
+
+## Repository Tree
+
+```
+dotfiles/
+├── ansible/
+│   ├── group_vars/
+│   │   └── all.yml       # Centralized package and repo lists (Scalable!)
+│   ├── roles/
+│   │   ├── common/       # Generic installer (Engine)
+│   │   └── gnome/        # GNOME desktop settings
+│   ├── site.yml          # Main playbook
+│   ├── ansible.cfg
+│   └── requirements.yml
+├── tests/
+│   ├── fixtures/
+│   │   └── bw-data.json  # Fake Bitwarden vault for CI testing
+│   ├── mocks/
+│   │   └── bw            # Mock Bitwarden CLI binary
+│   ├── run-all.sh        # Test runner
+│   ├── test-dotfiles.sh  # Assert dotfiles were applied
+│   ├── test-packages.sh  # Assert packages are installed
+│   └── test-age-key.sh   # Assert age key setup
+├── private_dot_ssh/      # SSH config and keys (age-encrypted)
+├── dot_aws/              # AWS config and credentials (Bitwarden-sourced)
+├── .chezmoi.toml.tmpl    # chezmoi config with prompts and encryption
+├── bootstrap.sh          # One-shot setup script
+└── run_once_after_ansible.sh.tmpl
+```
+
+## Directory Breakdown
+
+### `/ansible/` - System Configuration
+
+Ansible playbooks and roles for system-level package installation and configuration.
+
+#### `group_vars/all.yml`
+
+Centralized data-driven configuration file defining all packages and repositories.
+
+**External Repositories:**
+```yaml
+external_repositories:
+  - name: antigravity
+    key_url: https://us-central1-apt.pkg.dev/doc/repo-signing-key.gpg
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/antigravity-repo-key.gpg] ..."
+    keyring: /etc/apt/keyrings/antigravity-repo-key.gpg
+  - name: google-chrome
+    key_url: https://dl.google.com/linux/linux_signing_key.pub
+    repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] ..."
+    keyring: /usr/share/keyrings/google-chrome.gpg
+  - name: hashicorp
+    key_url: https://apt.releases.hashicorp.com/gpg
+    repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] ..."
+    keyring: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+  - name: vscode
+    key_url: https://packages.microsoft.com/keys/microsoft.asc
+    repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] ..."
+    keyring: /usr/share/keyrings/microsoft.gpg
+```
+
+**Workstation Packages:**
+```yaml
+workstation_packages:
+  - antigravity
+  - code
+  - curl
+  - git
+  - gnome-browser-connector
+  - google-chrome-stable
+  - htop
+  - jq
+  - nano
+  - plocate
+  - python3-psutil
+  - terraform
+  - unzip
+```
+
+**Snap Packages:**
+```yaml
+snap_packages:
+  - name: aws-cli
+    classic: true
+```
+
+#### `roles/common/tasks/main.yml`
+
+Universal installation role that handles:
+- GPG key download and de-armoring
+- APT repository configuration
+- Package installation (apt and snap)
+- Passwordless sudo configuration
+
+**Key tasks:**
+1. Download GPG keys and convert to binary format
+2. Add external repositories to apt sources
+3. Install all packages from `workstation_packages` list
+4. Install snap packages
+5. Configure sudoers for passwordless sudo
+
+#### `roles/gnome/tasks/`
+
+GNOME desktop environment configuration using `dconf`.
+
+**Settings configured:**
+- Color scheme: Dark mode
+- Clock: Show date, hide seconds
+- Power management: Disable sleep on AC power
+
+#### `site.yml`
+
+Main Ansible playbook that orchestrates role execution:
+
+```yaml
+---
+- name: Configure System
+  hosts: local
+  connection: local
+  become: true
+  roles:
+    - role: common
+      tags: [common]
+    - role: gnome
+      tags: [gnome]
+```
+
+---
+
+### `/tests/` - Automated Testing
+
+Integration tests for CI/CD and local verification.
+
+| File | Purpose |
+|------|----------|
+| `run-all.sh` | Executes all test scripts in sequence |
+| `test-dotfiles.sh` | Verifies dotfiles are applied (`~/.bash_aliases`, `~/.gitconfig`, etc.) |
+| `test-packages.sh` | Checks that required packages are installed |
+| `test-age-key.sh` | Validates age key exists with correct permissions (600) |
+| `fixtures/bw-data.json` | Mock Bitwarden vault data for testing |
+| `mocks/bw` | Mock Bitwarden CLI for CI environments |
+
+---
+
+### `/private_dot_ssh/` - SSH Configuration
+
+SSH keys and configuration files, encrypted with age.
+
+**Naming convention:**
+- `private_` prefix = encrypted file (requires age key to decrypt)
+- `.tmpl` suffix = template file (processed by chezmoi with variables)
+
+**Files:**
+- `private_yurgenlira.tmpl` - Private SSH key (encrypted)
+- `private_yurgenlira.pub.tmpl` - Public SSH key (encrypted)
+
+**Source:** Retrieved from Bitwarden Secure Notes during chezmoi apply.
+
+---
+
+### `/dot_aws/` - AWS Configuration
+
+AWS CLI configuration and credentials, sourced from Bitwarden.
+
+**Files:**
+- `private_config.tmpl` - AWS config file (`~/.aws/config`)
+- `private_credentials.tmpl` - AWS credentials file (`~/.aws/credentials`)
+
+**Template variables:** Pulled from Bitwarden custom fields using `bitwardenFields` function.
+
+---
+
+### Root-level Files
+
+#### `.chezmoi.toml.tmpl`
+
+Chezmoi configuration file with interactive prompts and encryption setup.
+
+**Prompts:**
+- Name (default: "Julio Lira")
+- Machine type (personal/work/hybrid)
+- Operating system (default: linux)
+- Default editor (default: code)
+- Personal email (if personal or hybrid)
+- Work email (if work or hybrid)
+
+**Encryption:**
+```toml
+encryption = "age"
+
+[age]
+    identity = "~/.config/chezmoi/key.txt"
+    recipient = "<public key from age identity>"
+```
+
+**Editor integration:**
+- Edit: Opens files in VS Code with `--wait`
+- Diff: Opens diffs in VS Code
+- Merge: Uses VS Code merge tool
+
+**Bitwarden integration:**
+```toml
+[bitwarden]
+    command = "bw"
+    unlock = "auto"
+```
+
+#### `bootstrap.sh`
+
+One-shot installation script. See [Bootstrap Script Reference](/reference/bootstrap-script) for details.
+
+#### `run_once_after_ansible.sh.tmpl`
+
+Executed once after dotfiles are applied. Runs the Ansible playbook to configure the system.
+
+```bash
+#!/bin/bash
+echo "Running Ansible playbooks..."
+cd {{ .chezmoi.sourceDir }}/ansible
+ansible-playbook site.yml --ask-become-pass
+```
+
+**Purpose:** Automates system configuration after dotfiles are in place.
+
+**Naming convention:**
+- `run_once_` prefix = Execute only once (chezmoi tracks execution)
+- `_after_` = Run after all other files are applied
+
+---
+
+## Chezmoi Naming Conventions
+
+Chezmoi uses special prefixes and suffixes to control file behavior:
+
+| Pattern | Result | Example |
+|---------|--------|----------|
+| `dot_` | Adds `.` prefix | `dot_bashrc` → `~/.bashrc` |
+| `private_` | Sets 600 permissions | `private_key` → readable only by owner |
+| `executable_` | Sets 755 permissions | `executable_script.sh` → executable |
+| `run_once_` | Executes once | Tracked in chezmoi state |
+| `run_after_` | Runs after file apply | Executed in order |
+| `.tmpl` | Template file | Processed with Go templates |
+| `.age` | Encrypted file | Decrypted with age key |
+
+**Combination example:**
+```
+private_dot_ssh/private_yurgenlira.tmpl
+```
+- Directory becomes `~/.ssh/` (private + hidden)
+- File is processed as template
+- Result: `~/.ssh/yurgenlira` with 600 permissions
+
+---
+
+## Data Flow
+
+1. **Bootstrap** installs tools and sets up age key
+2. **Chezmoi init** clones repository and prompts for config
+3. **Chezmoi apply** processes templates and decrypts files
+4. **Bitwarden** provides secrets (SSH keys, AWS credentials)
+5. **Age** decrypts sensitive files using `~/.config/chezmoi/key.txt`
+6. **Ansible** runs after dotfiles are applied to configure system packages and settings
+
+## Adding New Files
+
+### Add a new package
+
+Edit `ansible/group_vars/all.yml` and add to `workstation_packages` list. Update `tests/test-packages.sh` to verify installation.
+
+### Add a new dotfile
+
+Use chezmoi to add files from your home directory:
+
+```bash
+chezmoi add ~/.new_config_file
+```
+
+For encrypted files:
+
+```bash
+chezmoi add --encrypt ~/.ssh/new_key
+```
+
+### Add a new external repository
+
+Add entry to `external_repositories` in `ansible/group_vars/all.yml` with `key_url`, `repo`, and `keyring` fields. The `common` role will automatically handle GPG key installation.

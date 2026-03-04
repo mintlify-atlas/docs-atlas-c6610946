@@ -1,0 +1,229 @@
+---
+title: GNOME Desktop Customization
+description: Automated GNOME desktop environment configuration
+---
+
+The `gnome` role automatically configures GNOME desktop environment settings using the `community.general.dconf` module. All settings are applied idempotently through Ansible.
+
+## Configuration Overview
+
+GNOME settings are managed in `ansible/roles/gnome/tasks/settings.yml` and cover:
+
+- Color scheme (dark mode)
+- Clock display options
+- Power management settings
+
+## Current Settings
+
+### Dark Mode
+
+Enables GNOME's dark color scheme preference:
+
+```yaml
+- name: Set GNOME Color Scheme to Dark Mode
+  community.general.dconf:
+    key: "/org/gnome/desktop/interface/color-scheme"
+    value: "'prefer-dark'"
+    state: present
+```
+
+**Effect:** Applications and the desktop environment will use dark themes when available.
+
+### Clock Settings
+
+Configures the top bar clock to show the date and hide seconds:
+
+```yaml
+- name: Configure GNOME Clock (show date)
+  community.general.dconf:
+    key: "/org/gnome/desktop/interface/clock-show-date"
+    value: "true"
+    state: present
+
+- name: Configure GNOME Clock (hide seconds)
+  community.general.dconf:
+    key: "/org/gnome/desktop/interface/clock-show-seconds"
+    value: "false"
+    state: present
+```
+
+**Effect:** The top bar clock displays the date but not seconds (e.g., "Mon Mar 4" instead of just the time).
+
+### Power Settings
+
+Disables automatic sleep when on AC power:
+
+```yaml
+- name: Configure GNOME Power Settings (disable sleep on AC)
+  community.general.dconf:
+    key: "/org/gnome/settings-daemon/plugins/power/sleep-inactive-ac-type"
+    value: "'nothing'"
+    state: present
+```
+
+**Effect:** The system will never automatically sleep when plugged in to AC power.
+
+## Complete settings.yml File
+
+From `ansible/roles/gnome/tasks/settings.yml`:
+
+```yaml
+---
+- name: Set GNOME Color Scheme to Dark Mode
+  community.general.dconf:
+    key: "/org/gnome/desktop/interface/color-scheme"
+    value: "'prefer-dark'"
+    state: present
+
+- name: Configure GNOME Clock (show date)
+  community.general.dconf:
+    key: "/org/gnome/desktop/interface/clock-show-date"
+    value: "true"
+    state: present
+
+- name: Configure GNOME Clock (hide seconds)
+  community.general.dconf:
+    key: "/org/gnome/desktop/interface/clock-show-seconds"
+    value: "false"
+    state: present
+
+- name: Configure GNOME Power Settings (disable sleep on AC)
+  community.general.dconf:
+    key: "/org/gnome/settings-daemon/plugins/power/sleep-inactive-ac-type"
+    value: "'nothing'"
+    state: present
+```
+
+## Running GNOME Configuration
+
+```bash
+# Run the entire GNOME role
+ansible-playbook ansible/site.yml --tags gnome
+
+# Run only settings (same effect for this role)
+ansible-playbook ansible/site.yml --tags settings
+```
+
+## Adding New GNOME Settings
+
+To add additional GNOME settings:
+
+### 1. Find the dconf Key
+
+Use `dconf watch /` to monitor changes as you modify settings through GNOME Settings:
+
+```bash
+dconf watch /
+# Make changes in GNOME Settings
+# Watch for the keys that change
+```
+
+Or dump current settings:
+
+```bash
+dconf dump /org/gnome/desktop/
+```
+
+### 2. Add Task to settings.yml
+
+Add a new task to `ansible/roles/gnome/tasks/settings.yml`:
+
+```yaml
+- name: Your setting description
+  community.general.dconf:
+    key: "/org/gnome/path/to/setting"
+    value: "'your-value'"  # Note the quotes for strings
+    state: present
+```
+
+### 3. Value Format Notes
+
+**String values:** Use single quotes inside double quotes
+```yaml
+value: "'prefer-dark'"
+```
+
+**Boolean values:** No quotes
+```yaml
+value: "true"
+value: "false"
+```
+
+**Integer values:** No quotes
+```yaml
+value: "30"
+```
+
+**Arrays:** Use GVariant format
+```yaml
+value: "['item1', 'item2']"
+```
+
+## Common GNOME Settings
+
+Here are some commonly customized settings you might want to add:
+
+### Window Management
+
+```yaml
+# Focus on hover
+- name: Enable focus-follows-mouse
+  community.general.dconf:
+    key: "/org/gnome/desktop/wm/preferences/focus-mode"
+    value: "'sloppy'"
+    state: present
+
+# Show minimize/maximize buttons
+- name: Configure window buttons
+  community.general.dconf:
+    key: "/org/gnome/desktop/wm/preferences/button-layout"
+    value: "'appmenu:minimize,maximize,close'"
+    state: present
+```
+
+### Keyboard Settings
+
+```yaml
+# Faster key repeat
+- name: Set keyboard repeat delay
+  community.general.dconf:
+    key: "/org/gnome/desktop/peripherals/keyboard/delay"
+    value: "250"
+    state: present
+
+- name: Set keyboard repeat interval
+  community.general.dconf:
+    key: "/org/gnome/desktop/peripherals/keyboard/repeat-interval"
+    value: "30"
+    state: present
+```
+
+### Touchpad Settings
+
+```yaml
+# Enable tap-to-click
+- name: Enable touchpad tap-to-click
+  community.general.dconf:
+    key: "/org/gnome/desktop/peripherals/touchpad/tap-to-click"
+    value: "true"
+    state: present
+
+# Natural scrolling
+- name: Enable natural scrolling
+  community.general.dconf:
+    key: "/org/gnome/desktop/peripherals/touchpad/natural-scroll"
+    value: "true"
+    state: present
+```
+
+## Dependencies
+
+The GNOME role requires the `community.general` Ansible collection:
+
+```bash
+ansible-galaxy collection install -r ansible/requirements.yml
+```
+
+## Idempotence
+
+All dconf tasks are idempotent. The Ansible dconf module only makes changes when the current value differs from the desired value, so you can safely run the playbook multiple times.

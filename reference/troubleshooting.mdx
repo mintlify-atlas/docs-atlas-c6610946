@@ -1,0 +1,724 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for dotfiles setup
+---
+
+This page covers common issues you may encounter when setting up or using the dotfiles, along with their solutions.
+
+## Bootstrap Issues
+
+### Error: Script Exits Immediately
+
+**Symptom:**
+```bash
+bash -c "$(curl -fsLS https://raw.githubusercontent.com/yurgenlira/dotfiles/main/bootstrap.sh)"
+# Script exits without explanation
+```
+
+**Cause:** Running the script as root or with sudo.
+
+**Solution:**
+```bash
+# DO NOT run with sudo
+bash -c "$(curl -fsLS https://raw.githubusercontent.com/yurgenlira/dotfiles/main/bootstrap.sh)"
+
+# The script will request sudo when needed
+```
+
+**Why:** The script uses `set -e` (exit on error) and explicitly checks for root:
+```bash
+if [ "$(id -u)" -eq 0 ]; then
+    echo "Error: Please do not run this script as root/sudo."
+    exit 1
+fi
+```
+
+---
+
+### apt-get Command Not Found
+
+**Symptom:**
+```bash
+bash: apt-get: command not found
+```
+
+**Cause:** Not running on a Debian/Ubuntu-based system.
+
+**Solution:** This dotfiles setup is designed for Ubuntu/Debian. For other distributions:
+
+1. Manually install required tools:
+   - `ansible`
+   - `age`
+   - `bw` (Bitwarden CLI)
+   - `chezmoi`
+   - `git`
+   - `curl`
+
+2. Then proceed with:
+   ```bash
+   chezmoi init --apply yurgenlira
+   ```
+
+---
+
+### Snap Installation Fails
+
+**Symptom:**
+```bash
+error: cannot communicate with server: Post "http://localhost/v2/snaps/bw": dial unix /run/snapd.socket: connect: no such file or directory
+```
+
+**Cause:** snapd service is not running or not installed.
+
+**Solution:**
+```bash
+# Check if snapd is running
+sudo systemctl status snapd
+
+# Start snapd if stopped
+sudo systemctl start snapd
+sudo systemctl enable snapd
+
+# If not installed, bootstrap.sh will install it
+sudo apt-get install -y snapd
+```
+
+**Alternative:** The script automatically falls back to npm installation for Bitwarden CLI and curl installation for chezmoi if snap is unavailable.
+
+---
+
+## Bitwarden Issues
+
+### Bitwarden Login Fails
+
+**Symptom:**
+```bash
+bw login
+Email address: user@example.com
+Master password: ****
+Error: Username or password is incorrect. Try again.
+```
+
+**Possible causes and solutions:**
+
+#### 1. Incorrect Credentials
+
+Verify credentials by logging into the web vault at https://vault.bitwarden.com
+
+#### 2. Self-Hosted Instance
+
+If using a self-hosted Bitwarden server:
+
+```bash
+bw config server https://your-bitwarden-server.com
+bw login
+```
+
+#### 3. Two-Factor Authentication
+
+If 2FA is enabled:
+
+```bash
+bw login --method <method> --code <code>
+
+# Methods:
+# 0 = Authenticator app
+# 1 = Email
+# 3 = YubiKey
+
+# Example with authenticator:
+bw login --method 0 --code 123456
+```
+
+#### 4. API Rate Limiting
+
+Wait a few minutes and try again if you see:
+```
+Error: Rate limit exceeded. Try again later.
+```
+
+---
+
+### Bitwarden Session Expired
+
+**Symptom:**
+```bash
+chezmoi apply
+Error: Not logged in.
+```
+
+**Cause:** `BW_SESSION` environment variable is not set or expired.
+
+**Solution:**
+```bash
+# Check vault status
+bw status
+
+# If locked:
+export BW_SESSION=$(bw unlock --raw)
+
+# Or use the helper function:
+source ~/.bash_functions
+bw_unlock
+```
+
+**Persistent solution:** Add to `~/.bashrc`:
+```bash
+# Auto-check Bitwarden status on shell startup
+if command -v bw &> /dev/null; then
+    if bw status | grep -q '"status":"locked"'; then
+        echo "Bitwarden vault is locked. Run 'bw_unlock' to unlock."
+    fi
+fi
+```
+
+---
+
+### Cannot Find Secret in Bitwarden
+
+**Symptom:**
+```bash
+chezmoi apply
+Error: template: dot_ssh/private_id_rsa.tmpl:1: function "bitwarden" not available
+```
+
+**Cause:** Secret note doesn't exist in Bitwarden or has wrong name.
+
+**Solution:**
+
+1. List all items:
+   ```bash
+   bw list items | jq -r '.[].name'
+   ```
+
+2. Check specific note:
+   ```bash
+   bw get item "ssh-private-key"
+   ```
+
+3. Create missing note:
+   - Log into Bitwarden web vault
+   - Create Secure Note with exact name (case-sensitive)
+   - Paste secret content
+   - Save
+   - Sync CLI: `bw sync`
+
+**Expected secret names:**
+- `chezmoi-age-key` - Age encryption key
+- SSH keys as configured in templates
+
+---
+
+## Age Encryption Issues
+
+### Age Key Not Found
+
+**Symptom:**
+```bash
+chezmoi apply
+Error: age: failed to decrypt: no identity matched any of the recipients
+```
+
+**Cause:** Missing or incorrect age key at `~/.config/chezmoi/key.txt`.
+
+**Solution:**
+
+1. Check if key exists:
+   ```bash
+   ls -la ~/.config/chezmoi/key.txt
+   ```
+
+2. If missing, retrieve from Bitwarden:
+   ```bash
+   bw get notes "chezmoi-age-key" > ~/.config/chezmoi/key.txt
+   chmod 600 ~/.config/chezmoi/key.txt
+   ```
+
+3. If not in Bitwarden, you need the original key or must re-encrypt all files:
+   ```bash
+   # Generate new key
+   age-keygen -o ~/.config/chezmoi/key.txt
+   
+   # Re-encrypt all files in the repository
+   # (This requires access to the unencrypted versions)
+   ```
+
+**Prevention:** Always save the age key to Bitwarden immediately after generation.
+
+---
+
+### Wrong Age Key Permissions
+
+**Symptom:**
+```bash
+WARNING: Permissions 0644 for '/home/user/.config/chezmoi/key.txt' are too open.
+```
+
+**Cause:** Age key file has overly permissive file permissions.
+
+**Solution:**
+```bash
+chmod 600 ~/.config/chezmoi/key.txt
+chown $(id -u):$(id -g) ~/.config/chezmoi/key.txt
+```
+
+**Verify:**
+```bash
+ls -la ~/.config/chezmoi/key.txt
+# Should show: -rw------- 1 user user 184 Jan 15 10:30 key.txt
+```
+
+---
+
+### Cannot Decrypt File
+
+**Symptom:**
+```bash
+chezmoi apply
+Error: failed to decrypt ~/.ssh/id_rsa: no identity matched
+```
+
+**Cause:** File was encrypted with a different age key.
+
+**Solution:**
+
+1. Verify current key's public key:
+   ```bash
+   age-keygen -y ~/.config/chezmoi/key.txt
+   ```
+
+2. Check which key was used to encrypt:
+   ```bash
+   head -1 ~/.local/share/chezmoi/private_dot_ssh/private_id_rsa.age
+   # Shows: age-encryption.org/v1
+   # Second line shows recipient public key
+   ```
+
+3. If keys don't match, you need the correct key from:
+   - Another machine where it works
+   - Your backup/password manager
+   - Re-encrypt the file with current key (if you have unencrypted version)
+
+---
+
+## Chezmoi Issues
+
+### chezmoi init Fails
+
+**Symptom:**
+```bash
+chezmoi init --apply yurgenlira
+Error: cannot find GitHub repository
+```
+
+**Cause:** Network issue or repository doesn't exist.
+
+**Solution:**
+
+1. Check network connectivity:
+   ```bash
+   ping github.com
+   ```
+
+2. Verify repository exists:
+   ```bash
+   curl -I https://github.com/yurgenlira/dotfiles
+   ```
+
+3. Try with full URL:
+   ```bash
+   chezmoi init --apply https://github.com/yurgenlira/dotfiles.git
+   ```
+
+4. Use SSH instead of HTTPS:
+   ```bash
+   chezmoi init --apply git@github.com:yurgenlira/dotfiles.git
+   ```
+
+---
+
+### Template Execution Error
+
+**Symptom:**
+```bash
+chezmoi apply
+Error: template: dot_bashrc.tmpl:15: undefined variable "email"
+```
+
+**Cause:** Missing template variable in chezmoi config.
+
+**Solution:**
+
+1. Check current config:
+   ```bash
+   chezmoi data
+   ```
+
+2. Re-run init to answer prompts:
+   ```bash
+   chezmoi init
+   ```
+
+3. Or manually edit config:
+   ```bash
+   chezmoi edit-config
+   ```
+   
+   Add missing variables:
+   ```toml
+   [data]
+       email = "your@email.com"
+   ```
+
+---
+
+### Files Not Applied
+
+**Symptom:**
+Files exist in repository but are not in home directory after `chezmoi apply`.
+
+**Cause:** Conditional templates excluding files based on OS or machine type.
+
+**Solution:**
+
+1. Check what would be applied:
+   ```bash
+   chezmoi diff
+   ```
+
+2. See which files are managed:
+   ```bash
+   chezmoi managed
+   ```
+
+3. Verify template conditions:
+   ```bash
+   chezmoi cat ~/.bash_aliases
+   # Shows processed template output
+   ```
+
+4. Check your config data:
+   ```bash
+   chezmoi data | grep machine_type
+   ```
+
+**Example:** WSL aliases only load when:
+```go
+{{- if and (eq .chezmoi.os "linux") (contains "microsoft" .chezmoi.kernel.osrelease) }}
+```
+
+---
+
+## Ansible Issues
+
+### Ansible Playbook Fails
+
+**Symptom:**
+```bash
+Running Ansible playbooks...
+ERROR! couldn't resolve module/action 'community.general.dconf'
+```
+
+**Cause:** Missing Ansible collections.
+
+**Solution:**
+```bash
+cd ~/.local/share/chezmoi/ansible
+ansible-galaxy collection install -r requirements.yml
+```
+
+---
+
+### Package Installation Fails
+
+**Symptom:**
+```bash
+fatal: [local]: FAILED! => {"msg": "No package matching 'antigravity' is available"}
+```
+
+**Cause:** Repository not added or GPG key issue.
+
+**Solution:**
+
+1. Check if repository is configured:
+   ```bash
+   ls /etc/apt/sources.list.d/
+   ```
+
+2. Verify GPG key:
+   ```bash
+   ls -la /etc/apt/keyrings/
+   ```
+
+3. Manually run repository setup:
+   ```bash
+   cd ~/.local/share/chezmoi/ansible
+   ansible-playbook site.yml --tags common --ask-become-pass
+   ```
+
+4. Check for errors in apt:
+   ```bash
+   sudo apt update
+   # Look for GPG errors or repository failures
+   ```
+
+---
+
+### Permission Denied During Ansible Run
+
+**Symptom:**
+```bash
+fatal: [local]: FAILED! => {"msg": "Missing sudo password"}
+```
+
+**Cause:** Ansible needs sudo privileges but password wasn't provided.
+
+**Solution:**
+```bash
+cd ~/.local/share/chezmoi/ansible
+ansible-playbook site.yml --ask-become-pass
+# Enter your sudo password when prompted
+```
+
+---
+
+## Git Configuration Issues
+
+### Wrong Git Identity
+
+**Symptom:**
+Commits show wrong name/email in work repositories.
+
+**Cause:** Conditional git config not matching repository path.
+
+**Solution:**
+
+1. Check current config:
+   ```bash
+   cd ~/work/repo
+   git config user.email
+   ```
+
+2. Check conditionalInclude paths:
+   ```bash
+   cat ~/.gitconfig
+   ```
+
+3. Verify work gitconfig:
+   ```bash
+   cat ~/.gitconfig-work
+   ```
+
+4. Fix path matching:
+   ```bash
+   chezmoi edit ~/.gitconfig
+   ```
+   
+   Ensure paths match your actual directory structure:
+   ```gitconfig
+   [includeIf "gitdir:~/work/"]
+       path = ~/.gitconfig-work
+   ```
+
+---
+
+## SSH Issues
+
+### SSH Key Not Loaded
+
+**Symptom:**
+```bash
+git clone git@github.com:user/repo.git
+Permission denied (publickey).
+```
+
+**Cause:** SSH key not added to ssh-agent or wrong permissions.
+
+**Solution:**
+
+1. Check key permissions:
+   ```bash
+   ls -la ~/.ssh/
+   # Private keys should be 600
+   # Public keys should be 644
+   ```
+
+2. Fix permissions:
+   ```bash
+   chmod 700 ~/.ssh
+   chmod 600 ~/.ssh/id_*
+   chmod 644 ~/.ssh/id_*.pub
+   ```
+
+3. Add key to agent:
+   ```bash
+   eval "$(ssh-agent -s)"
+   ssh-add ~/.ssh/id_rsa
+   ```
+
+4. Verify key is loaded:
+   ```bash
+   ssh-add -l
+   ```
+
+5. Test connection:
+   ```bash
+   ssh -T git@github.com
+   ```
+
+---
+
+## AWS Configuration Issues
+
+### AWS Profile Not Found
+
+**Symptom:**
+```bash
+aws_env production
+profile 'production' not found
+```
+
+**Cause:** Profile doesn't exist in `~/.aws/credentials`.
+
+**Solution:**
+
+1. List existing profiles:
+   ```bash
+   aws configure list-profiles
+   ```
+
+2. Check credentials file:
+   ```bash
+   cat ~/.aws/credentials
+   ```
+
+3. If empty, re-apply dotfiles:
+   ```bash
+   # Ensure Bitwarden is unlocked
+   bw_unlock
+   
+   # Re-apply to pull AWS credentials
+   chezmoi apply --force
+   ```
+
+4. Verify credentials were populated:
+   ```bash
+   cat ~/.aws/credentials | grep -A 3 "[production]"
+   ```
+
+---
+
+### Environment Variables Not Set
+
+**Symptom:**
+```bash
+aws s3 ls
+Unable to locate credentials
+```
+
+**Cause:** AWS environment variables not exported.
+
+**Solution:**
+
+1. Use `aws_env` function:
+   ```bash
+   source ~/.bash_functions
+   aws_env production
+   ```
+
+2. Verify variables are set:
+   ```bash
+   env | grep AWS
+   ```
+
+3. Expected output:
+   ```
+   AWS_PROFILE=production
+   AWS_ACCESS_KEY_ID=AKIA...
+   AWS_SECRET_ACCESS_KEY=...
+   AWS_DEFAULT_REGION=us-east-1
+   ```
+
+---
+
+## General Debugging
+
+### Enable Verbose Output
+
+For chezmoi:
+```bash
+chezmoi apply -v
+# Even more verbose:
+chezmoi apply -vv
+```
+
+For Ansible:
+```bash
+ansible-playbook site.yml -vv --ask-become-pass
+```
+
+For bash scripts:
+```bash
+bash -x bootstrap.sh
+```
+
+### Check Logs
+
+```bash
+# System logs
+sudo journalctl -xe
+
+# Chezmoi state
+chezmoi doctor
+
+# Ansible facts
+ansible local -m setup
+```
+
+### Clean State and Retry
+
+```bash
+# Remove chezmoi state
+rm -rf ~/.local/share/chezmoi
+
+# Re-initialize
+chezmoi init --apply yurgenlira
+```
+
+**Warning:** This will delete local modifications to dotfiles.
+
+---
+
+## Getting Help
+
+If you encounter issues not covered here:
+
+1. Check chezmoi documentation: https://www.chezmoi.io/
+2. Check Bitwarden CLI docs: https://bitwarden.com/help/cli/
+3. Check age documentation: https://github.com/FiloSottile/age
+4. Review repository issues: https://github.com/yurgenlira/dotfiles/issues
+
+### Reporting Issues
+
+When reporting issues, include:
+
+1. Output of `chezmoi doctor`
+2. Operating system and version: `lsb_release -a`
+3. Error messages (full output)
+4. Steps to reproduce
+5. What you expected to happen
+
+**Example:**
+```bash
+# Gather diagnostic info
+echo "=== System Info ==="
+lsb_release -a
+
+echo "=== Chezmoi Doctor ==="
+chezmoi doctor
+
+echo "=== Tool Versions ==="
+ansible --version
+bw --version
+age --version
+```

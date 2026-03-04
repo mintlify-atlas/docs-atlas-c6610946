@@ -1,0 +1,373 @@
+---
+title: CI/CD Pipeline
+description: Understand the GitHub Actions CI/CD pipeline that validates and tests the dotfiles repository
+---
+
+## Overview
+
+The dotfiles repository uses GitHub Actions for continuous integration and deployment. The pipeline validates Ansible playbooks, chezmoi templates, and runs integration tests on every push and pull request.
+
+**Workflow file:** `.github/workflows/ci.yml`
+
+## Workflow Configuration
+
+### Triggers
+
+The CI workflow runs on:
+- Pushes to the `main` branch
+- Pull requests targeting `main`
+
+```yaml
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+```
+
+### Concurrency Control
+
+Prevents duplicate runs and cancels in-progress workflows when new commits are pushed:
+
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+```
+
+## Pipeline Jobs
+
+The pipeline consists of three jobs that run in sequence:
+
+### Job 1: Ansible Linting (`ansible-lint`)
+
+Validates Ansible playbooks and roles for best practices and common issues.
+
+**Duration:** ~1-2 minutes
+
+**Steps:**
+
+1. **Checkout code**
+   ```yaml
+   - uses: actions/checkout@v4
+   ```
+
+2. **Install Python dependencies**
+   ```yaml
+   - name: Install Python dependencies
+     run: |
+       python3 -m pip install --upgrade pip
+       python3 -m pip install ansible-core ansible-lint
+   ```
+
+3. **Install Ansible collections**
+   ```yaml
+   - name: Install Ansible collections
+     run: ansible-galaxy collection install -r ansible/requirements.yml
+   ```
+   
+   <Note>
+   Installing collections is required because custom modules like `community.general.dconf` need their collections available before linting.
+   </Note>
+
+4. **Run ansible-lint**
+   ```yaml
+   - name: Run ansible-lint
+     run: ansible-lint ansible/site.yml
+   ```
+
+**What ansible-lint checks:**
+- YAML syntax and formatting
+- Ansible best practices
+- Deprecated module usage
+- Shell command safety (e.g., `risky-shell-pipe`)
+- Truthy value formatting (`yaml[truthy]`)
+
+### Job 2: Chezmoi Validation (`chezmoi-validate`)
+
+Validates that chezmoi templates can be parsed and initialized.
+
+**Duration:** ~1 minute
+
+**Steps:**
+
+1. **Checkout code**
+   ```yaml
+   - uses: actions/checkout@v4
+   ```
+
+2. **Install chezmoi**
+   ```yaml
+   - name: Install chezmoi
+     run: sh -c "$(curl -fsLS get.chezmoi.io)"
+   ```
+
+3. **Validate templates (dry-run)**
+   ```yaml
+   - name: Validate chezmoi config template (dry-run)
+     run: ./bin/chezmoi init --dry-run
+   ```
+   
+   This ensures the `.chezmoi.toml.tmpl` template is syntactically valid.
+
+### Job 3: Integration Test (`integration-test`)
+
+Runs the full bootstrap and test suite in a containerized Ubuntu environment.
+
+**Duration:** ~5-7 minutes
+
+**Dependencies:** Requires `ansible-lint` and `chezmoi-validate` to pass first:
+```yaml
+needs: [ansible-lint, chezmoi-validate]
+```
+
+**Container:**
+```yaml
+container:
+  image: ubuntu:24.04
+  options: --privileged
+```
+
+<Warning>
+The `--privileged` flag is required for systemd and some package managers to work correctly.
+</Warning>
+
+**Steps:**
+
+#### 1. Install Base Dependencies
+
+```yaml
+- name: Install base dependencies
+  run: |
+    apt-get update
+    apt-get install -y curl git sudo age python3 ansible jq
+```
+
+#### 2. Install chezmoi
+
+```yaml
+- name: Install chezmoi (snap does work in a container)
+  run: |
+    sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
+```
+
+<Note>
+Snap doesn't work in containers, so chezmoi is installed directly to `/usr/local/bin`.
+</Note>
+
+#### 3. Create Test User
+
+```yaml
+- name: Create test user
+  run: |
+    useradd -m -s /bin/bash testuser
+    echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+```
+
+Tests run as a non-root user to simulate a real environment.
+
+#### 4. Install Mock Bitwarden CLI
+
+```yaml
+- name: Install mock Bitwarden CLI
+  run: |
+    install -m 755 tests/mocks/bw /usr/local/bin/bw
+    echo "export BW_FIXTURE=$GITHUB_WORKSPACE/tests/fixtures/bw-data.json" >> /etc/environment
+```
+
+The mock Bitwarden CLI reads from `tests/fixtures/bw-data.json` instead of connecting to a real vault.
+
+**Mock implementation** (`tests/mocks/bw:1`):
+```bash
+case "$1" in
+  status)
+    echo '{"status":"unlocked"}'
+    ;;
+  unlock)
+    echo "mock-session-token"
+    ;;
+  get)
+    if [ "$2" = "notes" ]; then
+      NAME="$3"
+      jq -r --arg name "$NAME" '.items[] | select(.name == $name) | .notes // empty' "$FIXTURE"
+    fi
+    ;;
+esac
+```
+
+#### 5. Run Bootstrap Script
+
+```yaml
+- name: Run bootstrap script
+  run: |
+    cp -r . /home/testuser/dotfiles
+    chown -R testuser:testuser /home/testuser/dotfiles
+    su testuser -c "BW_FIXTURE=$GITHUB_WORKSPACE/tests/fixtures/bw-data.json \
+      bash /home/testuser/dotfiles/bootstrap.sh"
+```
+
+#### 6. Seed Chezmoi Config
+
+```yaml
+- name: Seed chezmoi config (simulate init answers)
+  run: |
+    mkdir -p /home/testuser/.config/chezmoi
+    cat > /home/testuser/.config/chezmoi/chezmoi.toml << 'EOF'
+    encryption = "age"
+
+    [data]
+        name = "Test User"
+        machine_type = "personal"
+        os = "linux"
+        editor = "nano"
+        personal_email = "test@example.com"
+        work_email = ""
+        recipient = "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
+
+    [age]
+        identity = "/home/testuser/.config/chezmoi/key.txt"
+        recipient = "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
+    EOF
+    chown -R testuser:testuser /home/testuser/.config
+```
+
+This simulates user input during `chezmoi init`.
+
+#### 7. Run Ansible Playbook
+
+```yaml
+- name: Run Ansible (excluding GUI tasks)
+  run: |
+    cd ansible
+    ansible-playbook site.yml \
+      --skip-tags gnome,aws \
+      -e "ansible_python_interpreter=/usr/bin/python3" \
+      2>&1 || true
+```
+
+<Note>
+GUI tasks (GNOME settings) and AWS CLI (snap) are skipped because they don't work in containers.
+</Note>
+
+#### 8. Apply Dotfiles
+
+```yaml
+- name: Apply dotfiles
+  run: |
+    su testuser -c "chezmoi --source /home/testuser/dotfiles apply --force 2>&1 || true"
+```
+
+#### 9. Run Integration Tests
+
+```yaml
+- name: Run integration tests
+  run: |
+    TEST_HOME=/home/testuser SKIP_GUI_TESTS=true bash tests/run-all.sh
+```
+
+Runs all three test suites:
+- `test-packages.sh` - Verifies packages are installed
+- `test-dotfiles.sh` - Verifies dotfiles are applied
+- `test-age-key.sh` - Verifies age key setup
+
+## Running Ansible Lint Locally
+
+Before pushing changes, run `ansible-lint` locally to catch issues early.
+
+### Setup
+
+Install `ansible-dev-tools` in a virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install ansible-dev-tools
+```
+
+### Install Collections
+
+Install required Ansible collections:
+
+```bash
+ansible-galaxy collection install -r ansible/requirements.yml
+```
+
+### Run Linting
+
+```bash
+ansible-lint ansible/site.yml
+```
+
+### Common Lint Rules
+
+#### 1. Risky Shell Pipe (`risky-shell-pipe`)
+
+When using pipes in `ansible.builtin.shell` tasks, add `set -o pipefail`:
+
+```yaml
+# ❌ Bad
+- name: Install package
+  ansible.builtin.shell: curl -fsSL https://example.com/install.sh | bash
+
+# ✅ Good
+- name: Install package
+  ansible.builtin.shell: set -o pipefail && curl -fsSL https://example.com/install.sh | bash
+  args:
+    executable: /bin/bash
+```
+
+#### 2. YAML Truthy Values (`yaml[truthy]`)
+
+Use lowercase `true`/`false` instead of `yes`/`no`:
+
+```yaml
+# ❌ Bad
+- name: Enable service
+  ansible.builtin.systemd:
+    enabled: yes
+
+# ✅ Good
+- name: Enable service
+  ansible.builtin.systemd:
+    enabled: true
+```
+
+#### 3. Collection Dependencies
+
+Ensure collections are installed before linting:
+
+```yaml
+# ansible/requirements.yml
+collections:
+  - name: community.general
+    version: ">=8.0.0"
+```
+
+## CI Badge
+
+Display the CI status badge in your README:
+
+```markdown
+![CI](https://github.com/yurgenlira/dotfiles/actions/workflows/ci.yml/badge.svg)
+```
+
+## Troubleshooting
+
+### Tests Fail Locally But Pass in CI
+
+- Ensure you're using the mock Bitwarden CLI
+- Check that `BW_FIXTURE` points to the correct fixture file
+- Verify `TEST_HOME` is set correctly
+
+### Ansible Lint Fails on Collection Modules
+
+```bash
+# Install missing collections
+ansible-galaxy collection install -r ansible/requirements.yml
+```
+
+### Integration Tests Timeout
+
+- Check for infinite loops in scripts
+- Ensure Ansible tasks don't require user input
+- Verify the container has network access

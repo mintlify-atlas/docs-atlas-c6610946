@@ -1,0 +1,440 @@
+---
+title: Installation
+description: Detailed installation instructions for Linux and WSL
+---
+
+## Prerequisites
+
+Before installing the dotfiles system, ensure your environment meets the following requirements:
+
+### System Requirements
+
+<CardGroup cols={2}>
+  <Card title="Operating System" icon="linux">
+    - Ubuntu 20.04 LTS or later
+    - Debian-based distributions
+    - Windows Subsystem for Linux (WSL2)
+  </Card>
+  <Card title="User Permissions" icon="user">
+    - Non-root user account
+    - Sudo access for package installation
+  </Card>
+</CardGroup>
+
+### Required Accounts
+
+<Note>
+  You'll need a **Bitwarden account** with:
+  - An active vault
+  - SSH private keys stored as Secure Notes (optional but recommended)
+  - AWS credentials stored in custom fields (if using AWS)
+  - Age encryption key stored as a Secure Note named `chezmoi-age-key` (will be created automatically if missing)
+</Note>
+
+### Network Requirements
+
+- Internet connection for downloading packages
+- Access to GitHub for cloning your dotfiles repository
+- Access to Bitwarden servers for authentication
+
+## Installation Methods
+
+### Method 1: Automated Bootstrap (Recommended)
+
+The fastest way to get started is using the automated bootstrap script.
+
+<Steps>
+  <Step title="Install curl">
+    ```bash
+    sudo apt update && sudo apt install -y curl
+    ```
+  </Step>
+
+  <Step title="Run bootstrap script">
+    ```bash
+    bash -c "$(curl -fsLS https://raw.githubusercontent.com/yurgenlira/dotfiles/main/bootstrap.sh)"
+    ```
+
+    <Warning>
+      **Important Safety Checks:**
+      - The script will exit if run as root
+      - It will prompt for your password only when needed for sudo operations
+      - Review the script source before running if you have security concerns
+    </Warning>
+  </Step>
+
+  <Step title="Complete Bitwarden authentication">
+    When prompted, enter your Bitwarden credentials:
+    - Email address
+    - Master password
+    - Two-factor authentication code (if enabled)
+  </Step>
+
+  <Step title="Initialize chezmoi">
+    ```bash
+    chezmoi init --apply yurgenlira
+    ```
+
+    Replace `yurgenlira` with your GitHub username.
+  </Step>
+</Steps>
+
+### Method 2: Manual Installation
+
+For more control over the installation process, you can install components manually.
+
+<Steps>
+  <Step title="Install base dependencies">
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y curl git age gnupg software-properties-common snapd
+    ```
+
+    These packages provide:
+    - `curl`: Download files from URLs
+    - `git`: Version control for dotfiles repository
+    - `age`: Modern file encryption
+    - `gnupg`: GPG key management
+    - `software-properties-common`: Manage PPAs
+    - `snapd`: Snap package manager
+  </Step>
+
+  <Step title="Install Ansible">
+    ```bash
+    sudo add-apt-repository --yes --update ppa:ansible/ansible
+    sudo apt-get install -y ansible
+    ```
+
+    Verify installation:
+    ```bash
+    ansible --version
+    ```
+  </Step>
+
+  <Step title="Install Bitwarden CLI">
+    **Option A: Via Snap (Recommended)**
+    ```bash
+    sudo snap install bw
+    ```
+
+    **Option B: Via npm**
+    ```bash
+    sudo apt-get install -y nodejs npm
+    sudo npm install -g @bitwarden/cli
+    ```
+
+    Verify installation:
+    ```bash
+    bw --version
+    ```
+  </Step>
+
+  <Step title="Install chezmoi">
+    **Option A: Via Snap (Recommended)**
+    ```bash
+    sudo snap install chezmoi --classic
+    ```
+
+    **Option B: Via install script**
+    ```bash
+    sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin"
+    export PATH="$HOME/.local/bin:$PATH"
+    ```
+
+    Add to your PATH permanently:
+    ```bash
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+    source ~/.bashrc
+    ```
+
+    Verify installation:
+    ```bash
+    chezmoi --version
+    ```
+  </Step>
+
+  <Step title="Authenticate with Bitwarden">
+    ```bash
+    # Login to Bitwarden
+    bw login
+
+    # Unlock vault and export session
+    export BW_SESSION=$(bw unlock --raw)
+
+    # Sync vault
+    bw sync
+    ```
+
+    <Note>
+      The `BW_SESSION` environment variable keeps your vault unlocked for the current terminal session.
+    </Note>
+  </Step>
+
+  <Step title="Set up age encryption key">
+    ```bash
+    # Create config directory
+    mkdir -p "$HOME/.config/chezmoi"
+
+    # Try to retrieve key from Bitwarden
+    if bw get notes "chezmoi-age-key" > "$HOME/.config/chezmoi/key.txt" 2>/dev/null; then
+        echo "Successfully retrieved age key from Bitwarden."
+    else
+        echo "Generating new age key..."
+        age-keygen -o "$HOME/.config/chezmoi/key.txt"
+        echo "Save this key in Bitwarden as a Secure Note named 'chezmoi-age-key':"
+        cat "$HOME/.config/chezmoi/key.txt"
+    fi
+
+    # Set correct permissions
+    chmod 600 "$HOME/.config/chezmoi/key.txt"
+    ```
+
+    <Warning>
+      If you generated a new key, **immediately save it in Bitwarden** as a Secure Note with the exact name `chezmoi-age-key`. This ensures you can recover your encrypted files on other machines.
+    </Warning>
+  </Step>
+
+  <Step title="Initialize chezmoi with your dotfiles">
+    ```bash
+    chezmoi init --apply yurgenlira
+    ```
+
+    During initialization, you'll answer prompts:
+    - **Your Name**: Full name for Git commits
+    - **Machine type**: personal, work, or hybrid
+    - **Operating System**: linux (default)
+    - **Default Editor**: code, vim, nano, etc.
+    - **Personal Email**: (if personal or hybrid machine)
+    - **Work Email**: (if work or hybrid machine)
+  </Step>
+</Steps>
+
+## Platform-Specific Instructions
+
+### Ubuntu / Debian
+
+The standard installation process works on all Debian-based distributions. No special configuration needed.
+
+### Windows Subsystem for Linux (WSL)
+
+<Steps>
+  <Step title="Install WSL2">
+    From PowerShell as Administrator:
+    ```powershell
+    wsl --install -d Ubuntu
+    ```
+
+    Restart your computer when prompted.
+  </Step>
+
+  <Step title="Configure WSL">
+    Launch Ubuntu from the Start menu and create your user account.
+  </Step>
+
+  <Step title="Run bootstrap">
+    Inside WSL, follow the standard installation process:
+    ```bash
+    sudo apt update && sudo apt install -y curl
+    bash -c "$(curl -fsLS https://raw.githubusercontent.com/yurgenlira/dotfiles/main/bootstrap.sh)"
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  **WSL-Specific Tips:**
+  - GNOME desktop settings won't apply in WSL (requires a desktop environment)
+  - Use the Windows version of VS Code with the WSL extension for best experience
+  - Git credentials can be shared with Windows using Git Credential Manager
+</Note>
+
+## Bootstrap Script Breakdown
+
+Here's what the `bootstrap.sh` script does step-by-step:
+
+```bash bootstrap.sh
+#!/bin/bash
+set -euo pipefail
+
+# Safety check - must not run as root
+if [ "$(id -u)" -eq 0 ]; then
+    echo "Error: Please do not run this script as root/sudo."
+    exit 1
+fi
+
+# Install base dependencies
+sudo apt-get update
+sudo apt-get install -y curl git age gnupg software-properties-common snapd
+
+# Install Ansible from official PPA
+if ! command -v ansible &> /dev/null; then
+    sudo add-apt-repository --yes --update ppa:ansible/ansible
+    sudo apt-get install -y ansible
+fi
+
+# Install Bitwarden CLI (prefer snap, fallback to npm)
+if ! command -v bw >/dev/null 2>&1; then
+    if command -v snap >/dev/null 2>&1; then
+        sudo snap install bw
+    else
+        sudo apt-get install -y nodejs npm
+        sudo npm install -g @bitwarden/cli
+    fi
+fi
+
+# Install chezmoi (prefer snap, fallback to install script)
+if ! command -v chezmoi >/dev/null 2>&1; then
+    if command -v snap >/dev/null 2>&1; then
+        sudo snap install chezmoi --classic
+    else
+        sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin"
+        export PATH="$HOME/.local/bin:$PATH"
+    fi
+fi
+
+# Bitwarden authentication
+if bw status | grep -q '"status":"unauthenticated"'; then
+    bw login
+fi
+
+if bw status | grep -q '"status":"locked"'; then
+    BW_SESSION=$(bw unlock --raw)
+    export BW_SESSION
+    bw sync
+fi
+
+# Age key retrieval or generation
+mkdir -p "$HOME/.config/chezmoi"
+if [ ! -f "$HOME/.config/chezmoi/key.txt" ]; then
+    if bw get notes "chezmoi-age-key" > "$HOME/.config/chezmoi/key.txt" 2>/dev/null; then
+        echo "Successfully retrieved age key from Bitwarden."
+    else
+        age-keygen -o "$HOME/.config/chezmoi/key.txt"
+        echo "IMPORTANT: Save this key in Bitwarden as 'chezmoi-age-key':"
+        cat "$HOME/.config/chezmoi/key.txt"
+    fi
+fi
+chmod 600 "$HOME/.config/chezmoi/key.txt"
+```
+
+## Verification
+
+After installation, verify all components are working correctly:
+
+<Steps>
+  <Step title="Check installed tools">
+    ```bash
+    # Verify all tools are available
+    command -v ansible && echo "✓ Ansible installed"
+    command -v age && echo "✓ age installed"
+    command -v bw && echo "✓ Bitwarden CLI installed"
+    command -v chezmoi && echo "✓ chezmoi installed"
+    ```
+  </Step>
+
+  <Step title="Verify Bitwarden session">
+    ```bash
+    bw status
+    ```
+
+    Should show `"status":"unlocked"`
+  </Step>
+
+  <Step title="Check age key permissions">
+    ```bash
+    ls -la ~/.config/chezmoi/key.txt
+    ```
+
+    Should show: `-rw------- 1 user user` (permissions 600)
+  </Step>
+
+  <Step title="Test chezmoi">
+    ```bash
+    # List managed files
+    chezmoi managed
+
+    # Check for differences
+    chezmoi diff
+
+    # View chezmoi data
+    chezmoi data
+    ```
+  </Step>
+
+  <Step title="Verify Ansible">
+    ```bash
+    # Check if site.yml was applied
+    ls -la ~/.bash_aliases ~/.gitconfig ~/.ssh/config
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Bootstrap script fails with 'command not found'">
+    **Cause**: Snap binaries not in PATH immediately after installation.
+
+    **Solution**: Log out and log back in, or run:
+    ```bash
+    export PATH="/snap/bin:$PATH"
+    ```
+  </Accordion>
+
+  <Accordion title="Bitwarden login fails">
+    **Cause**: Network issues or incorrect credentials.
+
+    **Solution**:
+    - Check internet connection
+    - Verify email and master password
+    - If using self-hosted: `bw config server https://your-server.com`
+    - Check 2FA codes are current
+  </Accordion>
+
+  <Accordion title="Age key has wrong permissions">
+    **Cause**: File created with incorrect umask.
+
+    **Solution**:
+    ```bash
+    chmod 600 ~/.config/chezmoi/key.txt
+    ```
+  </Accordion>
+
+  <Accordion title="chezmoi init fails to decrypt files">
+    **Cause**: Wrong age key or missing key.
+
+    **Solution**:
+    - Verify key file exists: `cat ~/.config/chezmoi/key.txt`
+    - Retrieve from Bitwarden: `bw get notes "chezmoi-age-key"`
+    - Check key matches the public key in `.chezmoi.toml.tmpl`
+  </Accordion>
+
+  <Accordion title="Ansible playbook fails">
+    **Cause**: Missing dependencies or permissions.
+
+    **Solution**:
+    ```bash
+    # Install Ansible collections
+    ansible-galaxy collection install -r ansible/requirements.yml
+
+    # Run playbook manually with verbose output
+    ansible-playbook -v ansible/site.yml
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/configuration/machine-types">
+    Customize your dotfiles and add new packages
+  </Card>
+  <Card title="Secrets Management" icon="key" href="/secrets/bitwarden-setup">
+    Learn how to manage SSH keys and credentials
+  </Card>
+  <Card title="Testing" icon="flask" href="/development/testing">
+    Run integration tests to verify your setup
+  </Card>
+  <Card title="Shell Aliases" icon="terminal" href="/reference/shell-aliases">
+    Common workflows for managing your dotfiles
+  </Card>
+</CardGroup>

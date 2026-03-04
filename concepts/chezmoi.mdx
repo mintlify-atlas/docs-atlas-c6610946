@@ -1,0 +1,411 @@
+---
+title: Chezmoi Configuration
+description: Learn how chezmoi manages dotfiles, templates, and encryption
+---
+
+Chezmoi is the orchestration layer that manages your dotfiles across machines. It handles file templating, encryption, and coordinates with Bitwarden and Ansible.
+
+## What is Chezmoi?
+
+[Chezmoi](https://www.chezmoi.io/) is a dotfiles manager that:
+
+- Maintains your dotfiles in a Git repository
+- Applies them to your home directory
+- Supports templating for per-machine customization
+- Integrates with password managers and encryption tools
+- Runs scripts to automate additional setup
+
+<Info>
+Think of chezmoi as a "desired state engine" for your home directory, similar to how Kubernetes manages container deployments.
+</Info>
+
+## Configuration File
+
+The `.chezmoi.toml.tmpl` file configures chezmoi's behavior and stores machine-specific data.
+
+### Interactive Prompts
+
+On first run, chezmoi asks questions to customize your environment:
+
+```toml .chezmoi.toml.tmpl
+{{- $name := promptStringOnce . "name" "Your Name" "Julio Lira" -}}
+{{- $machine_type := promptStringOnce . "machine_type" "Machine type (personal/work/hybrid)" "hybrid" -}}
+{{- $os := promptStringOnce . "os" "Operating System" "linux" -}}
+{{- $editor := promptStringOnce . "editor" "Default Editor" "code" -}}
+
+{{- $personal_email := "" -}}
+{{- if or (eq $machine_type "personal") (eq $machine_type "hybrid") -}}
+{{-   $personal_email = promptStringOnce . "personal_email" "Personal Email" "" -}}
+{{- end -}}
+
+{{- $work_email := "" -}}
+{{- if or (eq $machine_type "work") (eq $machine_type "hybrid") -}}
+{{-   $work_email = promptStringOnce . "work_email" "Work Email" "" -}}
+{{- end -}}
+```
+
+<Note>
+`promptStringOnce` caches answers in `~/.config/chezmoi/chezmoi.toml` so you're only asked once per machine.
+</Note>
+
+### Data Section
+
+Prompted values are stored in the `[data]` section and become available to all templates:
+
+```toml
+[data]
+    name = "Julio Lira"
+    machine_type = "hybrid"
+    os = "linux"
+    editor = "code"
+    personal_email = "julio@personal.com"
+    work_email = "julio@company.com"
+```
+
+You can access these in templates as:
+
+```bash
+echo "Hello {{ .name }}!"  # Output: Hello Julio Lira!
+```
+
+## Editor Integration
+
+Chezmoi configures VS Code for editing, diffing, and merging:
+
+```toml .chezmoi.toml.tmpl
+[edit]
+    command = "code"
+    args = ["--wait"]
+
+[diff]
+    command = "code"
+    args = ["--wait", "--diff"]
+
+[merge]
+    command = "bash"
+    args = [
+        "-c",
+        "cp {{ .Target }} {{ .Target }}.base && code --new-window --wait --merge {{ .Destination }} {{ .Target }} {{ .Target }}.base {{ .Source }}",
+    ]
+```
+
+This enables:
+
+- `chezmoi edit ~/.bashrc` - Opens in VS Code
+- `chezmoi diff` - Shows changes in VS Code diff view
+- `chezmoi merge ~/.gitconfig` - Three-way merge conflicts
+
+<Tip>
+Replace `"code"` with `"nano"`, `"vim"`, or your preferred editor.
+</Tip>
+
+## Bitwarden Integration
+
+### Configuration
+
+```toml .chezmoi.toml.tmpl
+[bitwarden]
+    command = "bw"
+    unlock = "auto"
+```
+
+This tells chezmoi to use the `bw` CLI and automatically prompt for unlock if the vault is locked.
+
+### Template Functions
+
+Chezmoi provides two Bitwarden template functions:
+
+<Tabs>
+  <Tab title="bitwarden">
+    Retrieves the entire item as JSON:
+
+    ```go-template
+    {{- $sshKey := bitwarden "item" "ssh-private-key" -}}
+    {{ $sshKey.notes }}
+    ```
+
+    Use `.notes` for Secure Note contents or `.login.password` for passwords.
+  </Tab>
+  
+  <Tab title="bitwardenFields">
+    Retrieves specific custom fields:
+
+    ```go-template
+    {{- $aws := bitwardenFields "item" "aws-credentials-work" -}}
+    aws_access_key_id = {{ $aws.access_key_id.value }}
+    aws_secret_access_key = {{ $aws.secret_access_key.value }}
+    ```
+
+    Returns a map where keys are field names.
+  </Tab>
+</Tabs>
+
+<Warning>
+Bitwarden must be unlocked before running `chezmoi apply`. The bootstrap script handles initial authentication.
+</Warning>
+
+## Age Encryption
+
+### Configuration
+
+```toml .chezmoi.toml.tmpl
+encryption = "age"
+
+[age]
+    identity = "~/.config/chezmoi/key.txt"
+    recipient = {{ output "age-keygen" "-y" (joinPath .chezmoi.homeDir ".config/chezmoi/key.txt") | trim | quote }}
+```
+
+- **`identity`**: Your private key for decryption
+- **`recipient`**: Your public key for encryption (derived from the private key)
+
+### How It Works
+
+<Steps>
+  <Step title="Add Encrypted File">
+    ```bash
+    chezmoi add --encrypt ~/.ssh/config
+    ```
+    Creates `private_dot_ssh/config.age` in the source directory.
+  </Step>
+  
+  <Step title="Edit Encrypted File">
+    ```bash
+    chezmoi edit ~/.ssh/config
+    ```
+    Decrypts, opens in editor, re-encrypts on save.
+  </Step>
+  
+  <Step title="Apply to System">
+    ```bash
+    chezmoi apply
+    ```
+    Decrypts `.age` files and writes plaintext to `~/`.
+  </Step>
+</Steps>
+
+<Info>
+The `.age` file is safe to commit to Git. Only someone with your private key at `~/.config/chezmoi/key.txt` can decrypt it.
+</Info>
+
+## File Naming Conventions
+
+Chezmoi uses special prefixes to control file handling:
+
+| Prefix | Effect | Example |
+|--------|--------|--------|
+| `dot_` | Becomes `.` | `dot_bashrc` → `~/.bashrc` |
+| `private_` | Permissions `0600` | `private_dot_ssh/` → `~/.ssh/` (mode 600) |
+| `executable_` | Permissions `0755` | `executable_script.sh` → `~/script.sh` (executable) |
+| `.tmpl` | Template processing | `dot_gitconfig.tmpl` → `~/.gitconfig` (rendered) |
+| `.age` | Age encryption | `config.age` → `config` (decrypted on apply) |
+
+### Combined Examples
+
+```
+private_dot_ssh/config.age           → ~/.ssh/config (mode 600, decrypted)
+dot_bashrc.tmpl                      → ~/.bashrc (templated)
+run_once_after_ansible.sh.tmpl      → Runs once after other scripts
+```
+
+<Tip>
+Use `chezmoi add --autotemplate <file>` to automatically detect template variables in existing files.
+</Tip>
+
+## Template Syntax
+
+Chezmoi uses Go's `text/template` engine:
+
+### Variable Substitution
+
+```bash dot_bashrc.tmpl
+# User: {{ .name }}
+export EDITOR={{ .editor }}
+```
+
+Rendered output:
+```bash
+# User: Julio Lira
+export EDITOR=code
+```
+
+### Conditionals
+
+```gitconfig dot_gitconfig.tmpl
+[user]
+    name = {{ .name }}
+{{- if .personal_email }}
+    email = {{ .personal_email }}
+{{- else if .work_email }}
+    email = {{ .work_email }}
+{{- end }}
+```
+
+### Functions
+
+```bash
+# Execute commands
+RECIPIENT={{ output "age-keygen" "-y" "~/.config/chezmoi/key.txt" | trim }}
+
+# File operations
+{{ include "scripts/helper.sh" }}
+
+# Bitwarden
+{{ (bitwarden "item" "ssh-key").notes }}
+```
+
+<Accordion title="Available Template Variables">
+  - `.name` - User's full name
+  - `.machine_type` - `personal`, `work`, or `hybrid`
+  - `.os` - Operating system
+  - `.editor` - Default editor
+  - `.personal_email` - Personal email address
+  - `.work_email` - Work email address
+  - `.chezmoi.homeDir` - Home directory path
+  - `.chezmoi.sourceDir` - Chezmoi source directory
+  - `.chezmoi.username` - Current username
+  - `.chezmoi.hostname` - Machine hostname
+</Accordion>
+
+## Scripts
+
+Chezmoi can run scripts at various lifecycle stages:
+
+### Script Types
+
+| Script Name | When It Runs |
+|-------------|-------------|
+| `run_once_*.sh` | Only once ever (tracked in state) |
+| `run_before_*.sh` | Before applying files |
+| `run_after_*.sh` | After applying files |
+| `run_onchange_*.sh` | When the script content changes |
+
+### Example: Running Ansible
+
+```bash run_once_after_ansible.sh.tmpl
+#!/bin/bash
+
+echo "Running Ansible playbooks..."
+cd {{ .chezmoi.sourceDir }}/ansible
+ansible-playbook site.yml --ask-become-pass
+```
+
+This script:
+1. Uses the `.tmpl` extension for template processing
+2. Uses `run_once_after` to run once after files are applied
+3. Changes to the Ansible directory using `{{ .chezmoi.sourceDir }}`
+4. Executes the playbook
+
+<Warning>
+Scripts marked `run_once_*` create a state file at `~/.local/share/chezmoi/.chezmoistate.boltdb`. If you need to re-run, use `chezmoi state delete-bucket --bucket=entryState` or rename the script.
+</Warning>
+
+## Common Commands
+
+<CodeGroup>
+```bash Initialize
+# Clone and apply dotfiles in one command
+chezmoi init --apply yurgenlira
+
+# Or in two steps
+chezmoi init yurgenlira
+chezmoi apply
+```
+
+```bash Daily Usage
+# Check what would change
+chezmoi diff
+
+# Apply changes
+chezmoi apply
+
+# Edit a file
+chezmoi edit ~/.bashrc
+
+# Add new file
+chezmoi add ~/.newconfig
+
+# Add with encryption
+chezmoi add --encrypt ~/.ssh/config
+```
+
+```bash Updates
+# Pull latest from Git
+chezmoi update
+
+# Equivalent to:
+git -C ~/.local/share/chezmoi pull && chezmoi apply
+```
+
+```bash Troubleshooting
+# See what chezmoi would do
+chezmoi apply --dry-run --verbose
+
+# View rendered template
+chezmoi cat ~/.gitconfig
+
+# Re-run prompts
+rm ~/.config/chezmoi/chezmoi.toml
+chezmoi init
+```
+</CodeGroup>
+
+## Directory Structure
+
+```
+~/.local/share/chezmoi/          # Source directory (Git repo)
+├── .chezmoi.toml.tmpl           # Configuration
+├── dot_bashrc.tmpl              # → ~/.bashrc
+├── dot_gitconfig.tmpl           # → ~/.gitconfig
+├── private_dot_ssh/
+│   ├── config.age               # → ~/.ssh/config (encrypted)
+│   └── id_ed25519.tmpl          # → ~/.ssh/id_ed25519 (from Bitwarden)
+├── run_once_after_ansible.sh.tmpl
+└── ansible/                     # Embedded Ansible configs
+
+~/.config/chezmoi/
+├── chezmoi.toml                 # Generated from .chezmoi.toml.tmpl
+└── key.txt                      # Age private key (NOT in Git)
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Secrets Handling">
+    - Never commit `.config/chezmoi/key.txt`
+    - Use Bitwarden for credentials, not plaintext templates
+    - Mark sensitive files with `private_` prefix
+    - Use age encryption for configs containing secrets
+  </Accordion>
+  
+  <Accordion title="Template Organization">
+    - Use `{{ .machine_type }}` conditionals for hybrid setups
+    - Keep complex logic in separate script files
+    - Use `include` for shared template snippets
+    - Comment template sections for clarity
+  </Accordion>
+  
+  <Accordion title="Testing Changes">
+    - Always run `chezmoi diff` before `apply`
+    - Use `--dry-run` to preview script execution
+    - Test in a VM before applying to production machines
+    - Commit and push changes regularly
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Ansible Integration" icon="gears" href="/concepts/ansible">
+    Learn how Ansible automates system configuration
+  </Card>
+  <Card title="Secrets Management" icon="lock" href="/concepts/secrets">
+    Deep dive into Bitwarden and age encryption
+  </Card>
+  <Card title="Customization Guide" icon="wrench" href="/ansible/adding-software">
+    Add your own packages and configurations
+  </Card>
+  <Card title="Official Docs" icon="book" href="https://www.chezmoi.io/">
+    Chezmoi reference documentation
+  </Card>
+</CardGroup>

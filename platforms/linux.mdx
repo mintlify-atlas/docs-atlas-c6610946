@@ -1,0 +1,262 @@
+---
+title: Linux Support
+description: Native Linux support for Ubuntu and Debian-based distributions
+---
+
+This dotfiles configuration provides comprehensive support for Linux environments, with primary focus on Ubuntu and Debian-based distributions.
+
+## Supported Distributions
+
+### Ubuntu
+
+- **Ubuntu 24.04 LTS** (Primary testing environment)
+- **Ubuntu 22.04 LTS** 
+- **Ubuntu 20.04 LTS**
+
+The configuration is designed to work on standard Ubuntu installations, providing a consistent development environment across different versions.
+
+### Debian-Based Systems
+
+Any Debian-based distribution with APT package management should work, including:
+
+- Debian 11 (Bullseye) and newer
+- Linux Mint
+- Pop!_OS
+- elementary OS
+
+## Prerequisites
+
+Before running the bootstrap script, ensure your system has:
+
+### Minimal Requirements
+
+```bash
+sudo apt update && sudo apt install -y curl
+```
+
+### Bootstrap Installation
+
+The bootstrap script (`bootstrap.sh`) automatically installs all required dependencies:
+
+- **curl** - For downloading resources
+- **git** - Version control system
+- **age** - Encryption tool for secure files
+- **gnupg** - GPG key management
+- **software-properties-common** - APT repository management
+- **snapd** - Snap package manager (optional)
+- **ansible** - Configuration management
+- **Bitwarden CLI** (`bw`) - Secret management
+- **chezmoi** - Dotfiles manager
+
+## Installation Methods
+
+### Quick Start
+
+On a fresh Ubuntu/Debian machine:
+
+```bash
+sudo apt update && sudo apt install -y curl
+bash -c "$(curl -fsLS https://raw.githubusercontent.com/yurgenlira/dotfiles/main/bootstrap.sh)"
+```
+
+Then initialize and apply your dotfiles:
+
+```bash
+chezmoi init --apply yurgenlira
+```
+
+### What the Bootstrap Does
+
+1. **Verifies non-root execution** - Prevents accidental root installation
+2. **Updates APT repositories** - Ensures latest package information
+3. **Installs core dependencies** - curl, git, age, gnupg, software-properties-common, snapd
+4. **Installs Ansible** - Adds PPA and installs latest stable version
+5. **Installs Bitwarden CLI** - Via snap (preferred) or npm fallback
+6. **Installs chezmoi** - Via snap (classic) or install script fallback
+7. **Authenticates Bitwarden** - Logs in and unlocks vault
+8. **Configures age encryption** - Retrieves or generates encryption key
+
+## Package Manager Aliases
+
+On Linux systems, convenient APT shortcuts are automatically configured:
+
+```bash
+alias install='sudo apt install'
+alias update='sudo apt update'
+alias upgrade='sudo apt upgrade'
+alias search='apt search'
+alias show='apt show'
+```
+
+## System Configuration
+
+The Ansible playbook (`ansible/site.yml`) provides automated system setup:
+
+### Base Packages
+
+Installed via the data-driven `common` role from `ansible/group_vars/all.yml`:
+
+- Development tools: git, curl, jq, htop
+- Editors and IDEs
+- Cloud tools: terraform, AWS CLI
+- Browsers: Google Chrome
+- Security tools: age, gnupg
+
+### System Hardening
+
+- Configures passwordless `sudo` for the current user
+- Sets proper permissions on SSH keys (600)
+- Encrypts sensitive files with age
+
+### Desktop Environment (GNOME)
+
+For desktop installations, GNOME settings are configured:
+
+- Dark mode preference
+- Custom clock format (show date, hide seconds)
+- Power management (disable sleep on AC)
+- Window manager preferences
+
+## Shell Environment
+
+### Bash Configuration
+
+Custom bash aliases and functions include:
+
+**Navigation:**
+```bash
+ll        # ls -l
+..        # cd ..
+...       # cd ../..
+```
+
+**Network utilities:**
+```bash
+myip      # curl -s ipinfo.io/ip
+myipv6    # curl -s ifconfig.me
+ports     # ss -puntl
+psgrep    # ps aux | grep
+netgrep   # ss -puntl | grep
+```
+
+**Git shortcuts:**
+```bash
+gs        # git status
+gco       # git checkout
+gcm       # git commit -m
+gps       # git push
+gpl       # git pull
+gl        # git log --oneline
+git_clean_branches  # Clean merged branches
+```
+
+**Safety features:**
+```bash
+rm='rm -I'      # Interactive removal
+cp='cp -i'      # Interactive copy
+mv='mv -i'      # Interactive move
+ln='ln -i'      # Interactive link
+```
+
+### Editor Integration
+
+chezmoi is configured for VS Code integration:
+
+- `chezmoi edit` - Opens files in VS Code
+- `chezmoi diff` - Shows diffs in VS Code
+- `chezmoi merge` - Resolves conflicts in VS Code
+
+## Testing
+
+The configuration is continuously tested on Ubuntu 24.04 in GitHub Actions CI:
+
+### CI Pipeline
+
+1. **Ansible Lint** - Validates playbook syntax and best practices
+2. **chezmoi Validation** - Dry-run template initialization
+3. **Integration Tests** - Full end-to-end testing:
+   - Bootstrap script execution
+   - Ansible playbook application
+   - Dotfiles deployment
+   - Package installation verification
+   - File permissions validation
+
+### Local Testing
+
+Run integration tests locally:
+
+```bash
+bash tests/run-all.sh
+```
+
+Tests verify:
+- Dotfiles are applied (`~/.bash_aliases`, `~/.gitconfig`, etc.)
+- Required packages are installed
+- age key exists with correct 600 permissions
+
+## Troubleshooting
+
+### Permission Denied
+
+If you encounter permission errors:
+
+```bash
+# Ensure bootstrap is not run as root
+if [ "$(id -u)" -eq 0 ]; then
+    echo "Error: Please do not run this script as root/sudo."
+    exit 1
+fi
+```
+
+### Missing Dependencies
+
+If a dependency is missing, manually install:
+
+```bash
+sudo apt update
+sudo apt install -y curl git age ansible
+```
+
+### Snap Not Available
+
+If snap is not available on your system, the bootstrap script automatically falls back to:
+
+- **Bitwarden CLI**: npm installation
+- **chezmoi**: Direct install script to `~/.local/bin`
+
+Make sure `~/.local/bin` is in your PATH:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+## Security
+
+### File Encryption
+
+Sensitive files are encrypted with age:
+
+- SSH config and keys (`.age` extension in repository)
+- AWS credentials
+- Custom encrypted dotfiles
+
+### Secret Management
+
+All secrets are managed through Bitwarden:
+
+- SSH private keys stored as Secure Notes
+- AWS credentials in custom fields
+- age encryption key backed up securely
+
+### Key Storage
+
+```bash
+~/.config/chezmoi/key.txt  # age private key (600 permissions)
+~/.ssh/                    # SSH keys (600 permissions)
+```
+
+## Next Steps
+
+- See [WSL Support](/platforms/wsl) for Windows Subsystem for Linux
+- Check [Compatibility Matrix](/platforms/compatibility) for system requirements
+- Review the [Quick Start Guide](/quickstart) for initial setup

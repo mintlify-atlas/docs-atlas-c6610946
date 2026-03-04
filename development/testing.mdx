@@ -1,0 +1,252 @@
+---
+title: Testing Framework
+description: Learn how to run tests locally and understand the testing framework for the dotfiles repository
+---
+
+## Overview
+
+The dotfiles repository includes a comprehensive test suite to verify that packages are installed correctly, dotfiles are applied, and encryption keys are properly configured. Tests are written in Bash and can be run locally or in CI.
+
+## Test Suite Structure
+
+The test suite consists of three main test scripts:
+
+### 1. Package Installation Tests (`test-packages.sh`)
+
+Verifies that all required packages and commands are available on the system.
+
+**Location:** `tests/test-packages.sh`
+
+**What it checks:**
+- APT packages via `dpkg -l`
+- Snap packages via `snap list`
+- Command availability via `command -v`
+
+**Example packages tested:**
+```bash
+check_pkg age
+check_pkg curl
+check_pkg git
+check_pkg google-chrome-stable
+check_pkg htop
+check_pkg terraform
+
+check_snap aws-cli
+
+check_cmd bw
+check_cmd chezmoi
+check_cmd terraform
+```
+
+**GUI Tests:**
+Some tests are skipped in headless environments using the `SKIP_GUI_TESTS` environment variable:
+```bash
+if [ "${SKIP_GUI_TESTS:-false}" != "true" ]; then
+    check_snap aws-cli
+    check_cmd aws
+fi
+```
+
+### 2. Dotfiles Application Tests (`test-dotfiles.sh`)
+
+Verifies that chezmoi successfully applied dotfiles to the home directory.
+
+**Location:** `tests/test-dotfiles.sh`
+
+**What it checks:**
+```bash
+check_file ".bash_aliases"
+check_file ".bash_functions"
+check_file ".gitconfig"
+check_file ".profile"
+```
+
+The test script uses the `TEST_HOME` environment variable to test a different user's home directory (useful for CI).
+
+### 3. Age Key Setup Tests (`test-age-key.sh`)
+
+Verifies that the age encryption key was correctly retrieved from Bitwarden or generated.
+
+**Location:** `tests/test-age-key.sh`
+
+**What it checks:**
+1. Key file exists at `~/.config/chezmoi/key.txt`
+2. File permissions are `600`
+3. Key format is valid (starts with `AGE-SECRET-KEY-` or contains `# public key:`)
+4. Key was retrieved from Bitwarden fixture (in CI)
+
+**Example validation:**
+```bash
+# Check permissions are 600
+PERMS=$(stat -c "%a" "$KEY_FILE")
+if [ "$PERMS" = "600" ]; then
+  echo "  ✅ age key permissions are 600"
+else
+  echo "  ❌ age key permissions are $PERMS (expected 600)"
+fi
+
+# Check key format is valid
+if grep -qE "^(AGE-SECRET-KEY-|# public key:)" "$KEY_FILE"; then
+  echo "  ✅ age key format is valid"
+fi
+```
+
+## Running Tests Locally
+
+### Run All Tests
+
+Execute the test runner script to run all three test suites:
+
+```bash
+bash tests/run-all.sh
+```
+
+**Output example:**
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+▶ Running: Packages
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+=== Testing packages are installed ===
+  ✅ age
+  ✅ curl
+  ✅ git
+...
+▶ Packages: PASSED
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Final: 3 suites passed, 0 suites failed
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### Run Individual Tests
+
+You can run individual test scripts:
+
+```bash
+# Test packages only
+bash tests/test-packages.sh
+
+# Test dotfiles only
+bash tests/test-dotfiles.sh
+
+# Test age key only
+bash tests/test-age-key.sh
+```
+
+### Skip GUI Tests
+
+When running in headless environments (like CI containers), skip GUI-related tests:
+
+```bash
+SKIP_GUI_TESTS=true bash tests/run-all.sh
+```
+
+### Test a Different User
+
+Use the `TEST_HOME` environment variable to test dotfiles in a different home directory:
+
+```bash
+TEST_HOME=/home/testuser bash tests/run-all.sh
+```
+
+## Mock Bitwarden CLI for Testing
+
+The repository includes a mock Bitwarden CLI for testing without requiring a real Bitwarden account.
+
+**Location:** `tests/mocks/bw`
+
+### How It Works
+
+The mock reads from a JSON fixture file instead of connecting to Bitwarden:
+
+```bash
+FIXTURE="${BW_FIXTURE:-$SCRIPT_DIR/../fixtures/bw-data.json}"
+
+case "$1" in
+  status)
+    echo '{"status":"unlocked"}'
+    ;;
+  unlock)
+    echo "mock-session-token"
+    ;;
+  get)
+    if [ "$2" = "notes" ]; then
+      NAME="$3"
+      jq -r --arg name "$NAME" '.items[] | select(.name == $name) | .notes // empty' "$FIXTURE"
+    fi
+    ;;
+esac
+```
+
+### Using the Mock in CI
+
+The CI pipeline installs the mock globally and points it to the fixture:
+
+```yaml
+- name: Install mock Bitwarden CLI
+  run: |
+    install -m 755 tests/mocks/bw /usr/local/bin/bw
+    echo "export BW_FIXTURE=$GITHUB_WORKSPACE/tests/fixtures/bw-data.json" >> /etc/environment
+```
+
+### Fixture Data Structure
+
+The fixture file (`tests/fixtures/bw-data.json`) contains a fake Bitwarden vault:
+
+```json
+{
+  "items": [
+    {
+      "name": "chezmoi-age-key",
+      "notes": "AGE-SECRET-KEY-1FAKEKEY..."
+    }
+  ]
+}
+```
+
+## Test Runner Implementation
+
+The `run-all.sh` script (`tests/run-all.sh:1`) orchestrates all tests:
+
+```bash
+run_test() {
+  local name="$1"
+  local script="$2"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "▶ Running: $name"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if bash "$script"; then
+    OVERALL_PASS=$((OVERALL_PASS + 1))
+    echo "▶ $name: PASSED"
+  else
+    OVERALL_FAIL=$((OVERALL_FAIL + 1))
+    echo "▶ $name: FAILED"
+  fi
+}
+
+run_test "Packages"  "$SCRIPT_DIR/test-packages.sh"
+run_test "Dotfiles"  "$SCRIPT_DIR/test-dotfiles.sh"
+run_test "Age Key"   "$SCRIPT_DIR/test-age-key.sh"
+```
+
+## Adding New Tests
+
+When adding new packages or configuration:
+
+1. **For new packages**: Update `tests/test-packages.sh` with appropriate checks:
+   ```bash
+   check_pkg new-package-name
+   check_cmd new-command-name
+   ```
+
+2. **For new dotfiles**: Update `tests/test-dotfiles.sh` with file checks:
+   ```bash
+   check_file ".new-config-file"
+   ```
+
+3. **For new encrypted files**: Ensure the age key test passes
+
+<Note>
+Always update tests when modifying `ansible/group_vars/all.yml` to maintain test coverage.
+</Note>

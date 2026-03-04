@@ -1,0 +1,338 @@
+---
+title: Contributing Guidelines
+description: Guidelines for AI agents and developers contributing to the dotfiles repository
+---
+
+## Overview
+
+This guide outlines the standards and best practices for contributing to the dotfiles repository. These guidelines ensure consistency, scalability, and maintainability across the project.
+
+<Note>
+These guidelines are particularly important for AI agents working on this project, but apply to all contributors.
+</Note>
+
+## Project Architecture
+
+### Data-Driven Ansible Setup
+
+This repository uses a **data-driven Ansible architecture** to avoid role proliferation.
+
+<Warning>
+**Do NOT create a new Ansible role for every application.** Instead, use the centralized lists in `ansible/group_vars/all.yml` and the universal `common` role.
+</Warning>
+
+### How to Add New Software
+
+Follow these steps to add new packages:
+
+1. **Open `ansible/group_vars/all.yml`**
+
+2. **Add custom repository (if needed)**
+   
+   If the software requires a custom APT repository:
+   ```yaml
+   external_repositories:
+     - name: terraform
+       key_url: https://apt.releases.hashicorp.com/gpg
+       repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+       keyring: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+   ```
+   
+   The `common` role will automatically:
+   - Download the GPG key
+   - De-armor it
+   - Configure the APT source
+
+3. **Add package name**
+   
+   Add the package to the appropriate list:
+   ```yaml
+   workstation_packages:
+     - age
+     - curl
+     - git
+     - your-new-package
+   ```
+
+4. **Update tests**
+   
+   Add the package to `tests/test-packages.sh`:
+   ```bash
+   check_pkg your-new-package
+   check_cmd your-command-name
+   ```
+
+### When to Create Dedicated Roles
+
+Only create dedicated Ansible roles for software that requires:
+
+- Complex configuration files
+- Multi-step templating
+- Non-APT package managers (e.g., Snap, Flatpak)
+- Extensive system modifications
+
+**Example:** The `gnome` role handles GNOME desktop settings via `dconf`, which can't be managed through simple package lists.
+
+## Secrets Management
+
+### Never Commit Unencrypted Secrets
+
+<Warning>
+**Never** commit unencrypted sensitive information, API keys, or private SSH keys to the repository.
+</Warning>
+
+### Secrets Storage Strategy
+
+This project uses **Bitwarden CLI** (`bw`) and **`age`** encryption:
+
+| Secret Type | Storage Location | Access Method |
+|---|---|---|
+| SSH private keys | Bitwarden Secure Notes | `bitwarden` template function or `run_once_` scripts |
+| AWS credentials | Bitwarden Custom Fields | `bitwardenFields` template function |
+| `age` private key | Bitwarden Secure Note | Retrieved during bootstrap |
+| Config files with secrets | Git repo (`.age` encrypted) | Decrypted by chezmoi |
+
+### Adding Encrypted Files
+
+To add encrypted files to the repository:
+
+```bash
+chezmoi add --encrypt ~/.ssh/config
+```
+
+This creates an encrypted file in the chezmoi source directory that can be safely committed.
+
+## Tool Calling Conventions
+
+When modifying files (especially important for AI agents):
+
+### 1. Use Precise Editing Tools
+
+<Accordion title="Best Practices">
+- **Prefer:** Native file editing tools with exact `StartLine` and `EndLine` parameters
+- **Avoid:** Shell commands like `echo "text" >> file` or `sed`
+- **Reason:** Precise tools prevent accidental overwrites and make changes reviewable
+</Accordion>
+
+### 2. Don't Duplicate Existing Workflows
+
+<Warning>
+Don't build separate workflows if `chezmoi apply` or `ansible-playbook` already covers the use case.
+</Warning>
+
+**Example:**
+- ❌ Don't write a custom script to install packages
+- ✅ Add packages to `ansible/group_vars/all.yml`
+
+### 3. Respect Existing Tools
+
+Use the project's existing tools:
+- **chezmoi** for dotfile management
+- **Ansible** for system configuration
+- **Bitwarden CLI** for secrets
+
+## Testing Requirements
+
+### Update Tests When Adding Features
+
+<Note>
+Always update `tests/test-packages.sh` when adding new packages to `ansible/group_vars/all.yml`.
+</Note>
+
+### Run Tests Before Committing
+
+Run the integration test suite locally:
+
+```bash
+bash tests/run-all.sh
+```
+
+**Tests verify:**
+- ✅ Packages are installed
+- ✅ Dotfiles are applied
+- ✅ Age key is configured correctly
+
+## Ansible Linting
+
+### Setup Local Linting
+
+Before pushing Ansible changes, ensure they pass `ansible-lint`:
+
+```bash
+# Setup virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install ansible-dev-tools
+
+# Install collections
+ansible-galaxy collection install -r ansible/requirements.yml
+
+# Run linting
+ansible-lint ansible/site.yml
+```
+
+### Critical Lint Rules
+
+#### Rule 1: Pipes in Shell Tasks (`risky-shell-pipe`)
+
+When using pipes (`|`) in `ansible.builtin.shell` tasks:
+
+```yaml
+# ❌ Bad - Will fail ansible-lint
+- name: Install tool
+  ansible.builtin.shell: curl -fsSL https://example.com/install.sh | bash
+
+# ✅ Good - Passes ansible-lint
+- name: Install tool
+  ansible.builtin.shell: set -o pipefail && curl -fsSL https://example.com/install.sh | bash
+  args:
+    executable: /bin/bash
+```
+
+<Warning>
+Always prepend `set -o pipefail` and specify `executable: /bin/bash` when using pipes.
+</Warning>
+
+#### Rule 2: YAML Truthy Values (`yaml[truthy]`)
+
+Use standard YAML booleans:
+
+```yaml
+# ❌ Bad
+- name: Enable service
+  ansible.builtin.systemd:
+    enabled: yes
+    masked: no
+
+# ✅ Good
+- name: Enable service
+  ansible.builtin.systemd:
+    enabled: true
+    masked: false
+```
+
+<Note>
+Always use lowercase `true` or `false`. Do not use `yes`, `no`, `on`, `off`, `Y`, or `N`.
+</Note>
+
+#### Rule 3: Collection Dependencies
+
+Custom modules require their collections to be installed:
+
+```yaml
+# ansible/requirements.yml
+collections:
+  - name: community.general
+    version: ">=8.0.0"
+```
+
+Install before linting:
+```bash
+ansible-galaxy collection install -r ansible/requirements.yml
+```
+
+**Example module requiring collections:**
+```yaml
+- name: Set GNOME dark mode
+  community.general.dconf:
+    key: "/org/gnome/desktop/interface/color-scheme"
+    value: "'prefer-dark'"
+```
+
+## Idempotence
+
+### Ansible Tasks
+
+Ansible tasks are idempotent by design. Follow best practices:
+
+```yaml
+# ✅ Good - Idempotent
+- name: Ensure package is installed
+  ansible.builtin.apt:
+    name: curl
+    state: present
+
+# ❌ Bad - Not idempotent
+- name: Install package
+  ansible.builtin.shell: apt-get install -y curl
+```
+
+### Chezmoi Scripts
+
+When writing `run_once_` scripts for chezmoi, use guard clauses:
+
+```bash
+#!/bin/bash
+# run_once_install_tool.sh
+
+# ✅ Good - Check if already installed
+if ! command -v tool >/dev/null 2>&1; then
+    curl -fsSL https://example.com/install.sh | bash
+fi
+
+# ✅ Good - Check if file exists
+if [ ! -f ~/.config/tool/config.yml ]; then
+    mkdir -p ~/.config/tool
+    echo "config" > ~/.config/tool/config.yml
+fi
+```
+
+<Warning>
+Scripts must be strictly idempotent. Running them multiple times should produce the same result.
+</Warning>
+
+## Pull Request Checklist
+
+Before submitting a pull request:
+
+- [ ] Added packages to `ansible/group_vars/all.yml` (not new roles)
+- [ ] Updated `tests/test-packages.sh` for new packages
+- [ ] Ran `bash tests/run-all.sh` locally
+- [ ] Ran `ansible-lint ansible/site.yml` successfully
+- [ ] Used `true`/`false` instead of `yes`/`no` in YAML
+- [ ] Added `set -o pipefail` to shell tasks with pipes
+- [ ] Ensured scripts are idempotent
+- [ ] No unencrypted secrets committed
+- [ ] Followed existing code style and conventions
+
+## Repository Structure
+
+Understand the project structure before making changes:
+
+```
+dotfiles/
+├── ansible/
+│   ├── group_vars/
+│   │   └── all.yml          # ⭐ Add packages here
+│   ├── roles/
+│   │   ├── common/          # Universal installer role
+│   │   └── gnome/           # GNOME-specific settings
+│   ├── site.yml             # Main playbook
+│   ├── ansible.cfg
+│   └── requirements.yml     # Ansible collections
+├── tests/
+│   ├── fixtures/
+│   │   └── bw-data.json     # Mock Bitwarden data
+│   ├── mocks/
+│   │   └── bw               # Mock Bitwarden CLI
+│   ├── run-all.sh           # ⭐ Test runner
+│   ├── test-dotfiles.sh
+│   ├── test-packages.sh     # ⭐ Update when adding packages
+│   └── test-age-key.sh
+├── .chezmoi.toml.tmpl       # Chezmoi configuration
+├── bootstrap.sh             # Setup script
+└── AGENTS.md                # These guidelines
+```
+
+## Getting Help
+
+If you're unsure about:
+- Whether to create a new role
+- How to structure a configuration
+- Test requirements
+
+Refer to existing examples in the repository or ask in the pull request.
+
+---
+
+**Thank you for helping maintain a clean, scalable, and secure dotfiles environment!**

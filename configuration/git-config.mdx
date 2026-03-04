@@ -1,0 +1,160 @@
+---
+title: Git Configuration
+description: Conditional Git config for multiple identities
+---
+
+## Overview
+
+Git configuration automatically adapts based on machine type, supporting:
+
+- **Personal machines**: Use personal email by default
+- **Work machines**: Use work email by default
+- **Hybrid machines**: Use personal email by default, work email for work repositories
+
+## Personal Machine Configuration
+
+For `personal` or `hybrid` machines:
+
+```gitconfig dot_gitconfig.tmpl
+{{- if or (eq .machine_type "personal") (eq .machine_type "hybrid") }}
+# Default configuration (personal)
+[user]
+    name = {{ .name }}
+    email = {{ .personal_email }}
+[init]
+    defaultBranch = main
+{{- end }}
+```
+
+## Work Machine Configuration
+
+For `work` machines only:
+
+```gitconfig dot_gitconfig.tmpl
+{{- if eq .machine_type "work" }}
+# Work configuration
+[user]
+    name = {{ .name }}
+    email = {{ .work_email }}
+[init]
+    defaultBranch = master
+{{- end }}
+```
+
+## Hybrid Machine Configuration
+
+For `hybrid` machines, personal is default but work config is included conditionally:
+
+```gitconfig dot_gitconfig.tmpl
+{{- if eq .machine_type "hybrid" }}
+# Override config for work repositories
+{{- if eq .chezmoi.os "windows" }}
+[includeIf "gitdir:~/OneDrive/Documents/work/"]
+{{- else }}
+[includeIf "gitdir:~/Documents/work/"]
+{{- end }}
+   path = .gitconfig-work
+{{- end }}
+```
+
+This uses Git's `includeIf` directive to override settings based on repository location.
+
+## Work-Specific Configuration File
+
+The `.gitconfig-work` file contains work-specific overrides:
+
+```gitconfig dot_gitconfig-work.tmpl
+{{- if or (eq .machine_type "work") (eq .machine_type "hybrid") }}
+# Work-specific Git configuration template
+
+[user]
+    name = {{ .name }}
+    email = {{ .work_email }}
+
+[init]
+    defaultBranch = master
+{{- end }}
+```
+
+## Branch Name Differences
+
+- **Personal**: Uses `main` as default branch
+- **Work**: Uses `master` as default branch
+
+## Platform-Specific Settings
+
+### Line Endings
+
+```gitconfig dot_gitconfig.tmpl
+{{- if eq .chezmoi.os "windows" }}
+[core]
+    autocrlf = true
+{{- else }}
+[core]
+    autocrlf = false
+{{- end }}
+```
+
+## Common Settings
+
+Applied regardless of machine type:
+
+```gitconfig dot_gitconfig.tmpl
+# Common settings
+[color]
+    ui = true
+```
+
+## Git Aliases
+
+Standard shortcuts available on all machines:
+
+```gitconfig dot_gitconfig.tmpl
+[alias]
+    cm = commit -am
+    co = checkout
+    cb = checkout -b
+    ph = push origin HEAD
+    pl = pull origin
+    rename = branch -m
+    remove = branch -D
+    reseth = reset --hard HEAD^
+    b = branch
+    s = status
+    d = diff
+    l = log --oneline
+```
+
+## How It Works
+
+1. **Personal/Work machines**: Single identity configured directly in `.gitconfig`
+2. **Hybrid machines**:
+   - Default identity is personal
+   - When you `cd` into `~/Documents/work/` (or `~/OneDrive/Documents/work/` on Windows)
+   - Git automatically includes `.gitconfig-work`
+   - Work identity overrides personal identity for that repository
+
+## Directory Structure for Hybrid
+
+```
+~/Documents/
+├── personal/          # Uses personal email
+├── repos/            # Uses personal email
+└── work/             # Uses work email (via includeIf)
+    ├── project1/
+    └── project2/
+```
+
+## Testing Your Configuration
+
+Check which identity is active:
+
+```bash
+# In a personal repo
+cd ~/Documents/personal/my-project
+git config user.email  # Shows personal email
+
+# In a work repo
+cd ~/Documents/work/company-project
+git config user.email  # Shows work email
+```

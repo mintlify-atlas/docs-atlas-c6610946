@@ -1,0 +1,401 @@
+---
+title: WSL Support
+description: Windows Subsystem for Linux integration and Windows interoperability features
+---
+
+This dotfiles configuration provides first-class support for Windows Subsystem for Linux (WSL), with specialized aliases and workflows for seamless Windows-Linux integration.
+
+## Overview
+
+WSL environments are automatically detected and configured with Windows-specific interoperability features. The configuration uses chezmoi's conditional templating to enable WSL-specific features only when running on WSL.
+
+## Detection
+
+WSL is automatically detected using the kernel release information:
+
+```bash
+{{- if and (eq .chezmoi.os "linux") (contains "microsoft" .chezmoi.kernel.osrelease) }}
+# WSL-specific configuration
+{{- end }}
+```
+
+This ensures that WSL-specific aliases and configurations are only applied in WSL environments.
+
+## Windows Interop Aliases
+
+When running on WSL, the following Windows interoperability aliases are automatically configured:
+
+### Core Windows Commands
+
+```bash
+alias cmd='cmd.exe /c'              # Run Windows Command Prompt
+alias powershell='powershell.exe'   # Run Windows PowerShell
+alias pwsh='pwsh.exe'                # Run PowerShell Core
+alias explorer='explorer.exe'        # Open Windows Explorer
+alias notepad='notepad.exe'          # Open Windows Notepad
+alias open='explorer.exe'            # macOS-style 'open' command
+```
+
+### Usage Examples
+
+**Open current directory in Windows Explorer:**
+```bash
+open .
+# or
+explorer .
+```
+
+**Edit a file in Windows Notepad:**
+```bash
+notepad file.txt
+```
+
+**Run a Windows command:**
+```bash
+cmd dir
+cmd ipconfig /all
+```
+
+**Execute PowerShell scripts:**
+```bash
+powershell Get-Process
+pwsh -Command "Get-ChildItem -Recurse"
+```
+
+## Quick Windows Paths
+
+Convenient navigation aliases to common Windows directories:
+
+### User Directories
+
+```bash
+cdwin          # cd /mnt/c/Users/<username>
+cddownloads    # cd /mnt/c/Users/<username>/Downloads
+cddesktop      # cd /mnt/c/Users/<username>/Desktop
+cddocuments    # cd /mnt/c/Users/<username>/OneDrive/Documentos
+cdhome         # cd /home/<username>  (Linux home)
+```
+
+### Work Environment Aliases
+
+For work or hybrid machine types:
+
+```bash
+{{- if or (eq .machine_type "work") (eq .machine_type "hybrid") }}
+alias work-explorer='explorer.exe /mnt/c/Users/{{ .chezmoi.username }}/OneDrive/Documentos/work'
+alias cdwork='cd /mnt/c/Users/{{ .chezmoi.username }}/OneDrive/Documentos/work/repos'
+{{- end }}
+```
+
+**Usage:**
+```bash
+cdwork              # Navigate to work repositories
+work-explorer       # Open work folder in Windows Explorer
+```
+
+### Personal Environment Aliases
+
+For personal or hybrid machine types:
+
+```bash
+{{- if or (eq .machine_type "personal") (eq .machine_type "hybrid") }}
+alias cdrepos='cd /mnt/c/Users/{{ .chezmoi.username }}/OneDrive/Documentos/repos'
+alias personal-explorer='explorer.exe /mnt/c/Users/{{ .chezmoi.username }}/OneDrive/Documentos/repos'
+{{- end }}
+```
+
+**Usage:**
+```bash
+cdrepos             # Navigate to personal repositories
+personal-explorer   # Open repos folder in Windows Explorer
+```
+
+## Machine Types
+
+The dotfiles support three machine type configurations:
+
+### Personal
+
+- Personal project aliases
+- Personal repository paths
+- Personal Git configuration
+
+### Work
+
+- Work-specific aliases
+- Work repository paths
+- Work Git configuration with company email
+
+### Hybrid
+
+- **Both** work and personal aliases enabled
+- Conditional Git configuration based on repository path
+- Separate AWS credentials per environment
+
+Set your machine type during `chezmoi init`:
+
+```bash
+chezmoi init --apply yurgenlira
+# You'll be prompted for machine_type: personal, work, or hybrid
+```
+
+## File System Access
+
+### Windows Drives
+
+Windows drives are mounted under `/mnt/`:
+
+```bash
+/mnt/c/          # C: drive
+/mnt/d/          # D: drive (if available)
+```
+
+### Path Conversion
+
+When working with paths between Windows and WSL:
+
+**Windows path to WSL:**
+```bash
+C:\Users\username\Documents
+# Becomes:
+/mnt/c/Users/username/Documents
+```
+
+**WSL path to Windows:**
+```bash
+/home/username/project
+# Becomes:
+\\wsl$\Ubuntu\home\username\project
+```
+
+## Git Configuration
+
+### Line Ending Handling
+
+WSL environments should configure Git to handle Windows line endings:
+
+```bash
+git config --global core.autocrlf input
+```
+
+This is automatically configured during dotfiles application.
+
+### Conditional Git Identity
+
+For hybrid machines, Git identity switches based on repository location:
+
+```gitconfig
+# ~/.gitconfig
+[includeIf "gitdir:/mnt/c/Users/username/OneDrive/Documentos/work/"]
+    path = ~/.gitconfig-work
+
+[includeIf "gitdir:/mnt/c/Users/username/OneDrive/Documentos/repos/"]
+    path = ~/.gitconfig-personal
+```
+
+## Performance Considerations
+
+### File System Performance
+
+**Best Practice:** Keep active development projects in the WSL file system (`/home/username/`) rather than Windows file system (`/mnt/c/`).
+
+```bash
+# Fast (native WSL filesystem)
+~/projects/myapp/
+
+# Slower (cross-filesystem access)
+/mnt/c/Users/username/projects/myapp/
+```
+
+### When to Use Windows Filesystem
+
+- Sharing files with Windows applications
+- Working with Visual Studio Code Remote-WSL
+- Accessing Windows-managed documents
+
+### When to Use WSL Filesystem
+
+- Heavy git operations
+- Node.js projects with many files
+- Docker container volumes
+- Build systems with extensive file I/O
+
+## IDE Integration
+
+### Visual Studio Code
+
+The dotfiles are optimized for VS Code with Remote-WSL extension:
+
+1. **Install VS Code on Windows**
+2. **Install Remote-WSL extension**
+3. **Open WSL terminal:**
+   ```bash
+   cd ~/project
+   code .
+   ```
+
+VS Code will automatically launch with the Remote-WSL connection.
+
+### Editor Configuration
+
+chezmoi is configured to use VS Code for diff and merge:
+
+```bash
+chezmoi edit <file>    # Opens in VS Code
+chezmoi diff           # Shows diff in VS Code
+```
+
+## WSL-Specific Prerequisites
+
+### Windows Requirements
+
+- Windows 10 version 1903+ or Windows 11
+- WSL 2 (recommended)
+- Windows Terminal (recommended)
+
+### Enabling WSL
+
+If WSL is not yet installed:
+
+```powershell
+# In PowerShell (Administrator)
+wsl --install
+
+# Or install Ubuntu specifically
+wsl --install -d Ubuntu-24.04
+```
+
+### Updating WSL
+
+```powershell
+wsl --update
+wsl --version
+```
+
+## Installation on WSL
+
+The installation process is identical to native Linux:
+
+```bash
+sudo apt update && sudo apt install -y curl
+bash -c "$(curl -fsLS https://raw.githubusercontent.com/yurgenlira/dotfiles/main/bootstrap.sh)"
+chezmoi init --apply yurgenlira
+```
+
+The bootstrap script will:
+1. Detect WSL environment
+2. Install all dependencies
+3. Configure Bitwarden and age encryption
+4. Apply WSL-specific aliases and configurations
+
+## Networking
+
+### Accessing WSL Services from Windows
+
+WSL 2 services are accessible from Windows via `localhost`:
+
+```bash
+# Start a web server in WSL
+python3 -m http.server 8000
+
+# Access from Windows browser:
+# http://localhost:8000
+```
+
+### Accessing Windows Services from WSL
+
+```bash
+# Windows host IP (WSL 2)
+grep nameserver /etc/resolv.conf | awk '{print $2}'
+
+# Access Windows service
+curl http://<windows-ip>:8080
+```
+
+## Troubleshooting
+
+### Snap Not Working in WSL
+
+Snap daemon may not work in WSL. The bootstrap script automatically falls back to alternative installation methods:
+
+- **Bitwarden CLI**: Installed via npm
+- **chezmoi**: Installed via install script to `~/.local/bin`
+
+### Windows Commands Not Found
+
+Ensure Windows path is in WSL PATH:
+
+```bash
+echo $PATH | grep -i windows
+
+# If missing, add to ~/.bashrc:
+export PATH="$PATH:/mnt/c/Windows/System32"
+```
+
+### Permission Issues with /mnt/c
+
+Windows files may have incorrect permissions. Configure WSL to fix this:
+
+```bash
+# /etc/wsl.conf
+[automount]
+options = "metadata,umask=22,fmask=11"
+```
+
+Restart WSL:
+```powershell
+wsl --shutdown
+```
+
+### Line Ending Issues
+
+If you see `^M` characters or Git reports line ending changes:
+
+```bash
+# Configure Git
+git config --global core.autocrlf input
+
+# Convert existing files
+dos2unix file.sh
+```
+
+## Limitations
+
+### GUI Applications
+
+WSL 1 does not support GUI applications natively. WSL 2 with WSLg (Windows 11) supports GUI apps:
+
+```bash
+# Install a GUI app
+sudo apt install -y gedit
+
+# Run (WSL 2 + WSLg only)
+gedit &
+```
+
+### systemd Support
+
+WSL 2 supports systemd in recent versions:
+
+```bash
+# /etc/wsl.conf
+[boot]
+systemd=true
+```
+
+Restart WSL:
+```powershell
+wsl --shutdown
+```
+
+### Docker
+
+Recommended approach: Use Docker Desktop for Windows with WSL 2 backend.
+
+Alternatively, install Docker directly in WSL 2 with systemd enabled.
+
+## Next Steps
+
+- See [Linux Support](/platforms/linux) for native Linux configuration
+- Check [Compatibility Matrix](/platforms/compatibility) for detailed requirements
+- Review [Quick Start Guide](/quickstart) for setup instructions

@@ -1,0 +1,77 @@
+---
+title: Ansible Automation Overview
+description: Data-driven Ansible setup for automated system configuration
+---
+
+This dotfiles repository uses a **data-driven Ansible architecture** to automate system configuration. Instead of creating a new role for every application, software is managed through centralized lists in `ansible/group_vars/all.yml`.
+
+## Architecture Philosophy
+
+The key principle is **scalability through data, not code**. Rather than creating dozens of specialized roles, this setup uses:
+
+- **Centralized package lists** in `group_vars/all.yml`
+- **Universal `common` role** that handles most installations
+- **Specialized roles** only for complex configurations (like GNOME settings)
+
+<Note>
+Do **NOT** create a new Ansible role for every new application. Use the centrally managed lists instead.
+</Note>
+
+## Playbook Structure
+
+The main playbook is `ansible/site.yml`:
+
+```yaml
+---
+- name: Configure System
+  hosts: local
+  connection: local
+  become: true
+  roles:
+    - role: common
+      tags: [common]
+    - role: gnome
+      tags: [gnome]
+```
+
+## Available Roles
+
+### Common Role
+Handles all standard package installations:
+- External APT repositories (Chrome, VSCode, Hashicorp, etc.)
+- APT package installation
+- Snap package installation
+- Passwordless sudo configuration
+
+### GNOME Role
+Configures GNOME desktop environment:
+- Dark mode preference
+- Clock settings (show date, hide seconds)
+- Power management (disable sleep on AC)
+
+## When to Create a New Role
+
+Only create dedicated roles for software that requires:
+- Complex configuration files
+- Multi-step templating
+- Different package managers (beyond standard APT/Snap)
+- Extensive customization that cannot be handled by simple package installation
+
+For most software, simply add it to the package lists in `group_vars/all.yml`.
+
+## Running the Playbook
+
+```bash
+# Run the entire playbook
+ansible-playbook ansible/site.yml
+
+# Run only the common role
+ansible-playbook ansible/site.yml --tags common
+
+# Run only the GNOME role
+ansible-playbook ansible/site.yml --tags gnome
+```
+
+## Idempotence
+
+All Ansible tasks are designed to be idempotent. You can run the playbook multiple times safely - it will only make changes when necessary.

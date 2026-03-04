@@ -1,0 +1,213 @@
+---
+title: Shell Customization
+description: Bash aliases and functions for productivity
+---
+
+## Overview
+
+The dotfiles include extensive bash aliases and custom functions to improve productivity.
+
+## Basic Aliases
+
+Common shortcuts for navigation and file operations:
+
+```bash dot_bash_aliases.tmpl
+# basic
+alias ll='ls -l'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias tailf='tail -f'
+```
+
+## Network Aliases
+
+Quick network diagnostics:
+
+```bash dot_bash_aliases.tmpl
+# network
+alias myip='curl -s ipinfo.io/ip'
+alias myipv6='curl -s ifconfig.me'
+alias ports='ss -puntl'
+alias psgrep='ps aux | grep'
+alias netgrep='ss -puntl | grep'
+```
+
+## Safety Aliases
+
+Prevent accidental file operations:
+
+```bash dot_bash_aliases.tmpl
+# safety
+alias rm='rm -I'
+alias cp='cp -i'
+alias mv='mv -i'
+alias ln='ln -i'
+```
+
+## System Aliases
+
+Enhanced system commands:
+
+```bash dot_bash_aliases.tmpl
+# system
+alias grep='grep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias egrep='egrep --color=auto'
+alias h='history'
+alias j='jobs -l'
+alias c='clear'
+alias df='df -h'
+alias du='du -h'
+alias free='free -h'
+```
+
+## Git Aliases
+
+Common git shortcuts:
+
+```bash dot_bash_aliases.tmpl
+# git
+alias gs='git status'
+alias gco='git checkout'
+alias gcm='git commit -m'
+alias gps='git push'
+alias gpl='git pull'
+alias gb='git branch'
+alias gd='git diff'
+alias gl='git log --oneline'
+alias ga='git add'
+alias git_clean_branches='git remote prune origin && git branch --merged | grep -v "\*" | xargs -n 1 git branch -d'
+```
+
+## Linux Package Management
+
+Only applied on Linux systems:
+
+```bash dot_bash_aliases.tmpl
+{{- if eq .chezmoi.os "linux" }}
+# package manager
+alias install='sudo apt install'
+alias update='sudo apt update'
+alias upgrade='sudo apt upgrade'
+alias search='apt search'
+alias show='apt show'
+{{- end }}
+```
+
+## Backup Alias
+
+Rsync-based backup:
+
+```bash dot_bash_aliases.tmpl
+# Other
+alias backup='rsync -av --progress'
+```
+
+## WSL-Specific Aliases
+
+Only applied when running in WSL (Windows Subsystem for Linux):
+
+### Windows Interop
+
+```bash dot_bash_aliases.tmpl
+{{- if and (eq .chezmoi.os "linux") (contains "microsoft" .chezmoi.kernel.osrelease) }}
+## WSL
+
+# Windows interop aliases
+alias cmd='cmd.exe /c'
+alias powershell='powershell.exe'
+alias pwsh='pwsh.exe'
+alias explorer='explorer.exe'
+alias notepad='notepad.exe'
+alias open='explorer.exe'
+```
+
+### Quick Windows Paths
+
+```bash dot_bash_aliases.tmpl
+# Quick Windows paths
+alias cdwin='cd /mnt/c/Users/{{ .chezmoi.username }}'
+alias cddownloads='cd /mnt/c/Users/{{ .chezmoi.username }}/Downloads'
+alias cddesktop='cd /mnt/c/Users/{{ .chezmoi.username }}/Desktop'
+alias cddocuments='cd /mnt/c/Users/{{ .chezmoi.username }}/OneDrive/Documentos'
+alias cdhome='cd /home/{{ .chezmoi.username }}'
+```
+
+### Work-Specific WSL Aliases
+
+Only for `work` or `hybrid` machines:
+
+```bash dot_bash_aliases.tmpl
+{{- if or (eq .machine_type "work") (eq .machine_type "hybrid") }}
+# Work-specific WSL aliases
+alias work-explorer='explorer.exe /mnt/c/Users/{{ .chezmoi.username }}/OneDrive/Documentos/work'
+alias cdwork='cd /mnt/c/Users/{{ .chezmoi.username }}/OneDrive/Documentos/work/repos'
+{{- end }}
+```
+
+### Personal Project Aliases
+
+Only for `personal` or `hybrid` machines:
+
+```bash dot_bash_aliases.tmpl
+{{- if or (eq .machine_type "personal") (eq .machine_type "hybrid") }}
+# Personal project aliases
+alias cdrepos='cd /mnt/c/Users/{{ .chezmoi.username }}/OneDrive/Documentos/repos'
+alias personal-explorer='explorer.exe /mnt/c/Users/{{ .chezmoi.username }}/OneDrive/Documentos/repos'
+{{- end }}
+{{- end }}
+```
+
+## Custom Functions
+
+### AWS Environment Switcher
+
+Switch between AWS profiles and export credentials:
+
+```bash dot_bash_functions
+aws_env() {
+profiles=$(aws configure list-profiles)
+if echo "${profiles[@]:0}" | grep -q "^$1$" ; then
+   AWS_ACCESS_KEY_ID=$(aws configure get aws_access_key_id --profile "$1");
+   AWS_SECRET_ACCESS_KEY=$(aws configure get aws_secret_access_key --profile "$1");
+   AWS_DEFAULT_REGION=$(aws configure get region --profile "$1");
+   export AWS_PROFILE=$1
+   export AWS_ACCESS_KEY_ID
+   export AWS_SECRET_ACCESS_KEY
+   export AWS_DEFAULT_REGION
+   echo "$1 environment variables exported";
+   env | grep AWS_ | sort
+else
+   echo "profile '$1' not found"
+   echo "profiles availables:"
+   echo "${profiles[@]:0}"
+fi
+}
+```
+
+Usage:
+```bash
+aws_env nowtech
+```
+
+### Bitwarden Session Management
+
+Unlock Bitwarden vault and export session:
+
+```bash dot_bash_functions
+# Bitwarden session management
+bw_unlock() {
+    export BW_SESSION=$(bw unlock --raw)
+    echo "Bitwarden vault unlocked"
+}
+
+bw_status() {
+    bw status
+}
+```
+
+Usage:
+```bash
+bw_unlock
+bw_status
+```

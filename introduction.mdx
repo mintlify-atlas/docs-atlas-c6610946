@@ -1,0 +1,160 @@
+---
+title: Introduction
+description: Portable, encrypted dotfiles management with chezmoi, Ansible, and Bitwarden
+---
+
+<img
+  className="block dark:hidden"
+  src="https://github.com/yurgenlira/dotfiles/actions/workflows/ci.yml/badge.svg"
+  alt="CI Status"
+/>
+<img
+  className="hidden dark:block"
+  src="https://github.com/yurgenlira/dotfiles/actions/workflows/ci.yml/badge.svg"
+  alt="CI Status"
+/>
+
+## Overview
+
+A production-ready dotfiles system that combines the power of **chezmoi** for file management, **Ansible** for system configuration, and **Bitwarden** for secrets management. Designed for developers who work across multiple machines and need to maintain separate personal and work identities.
+
+This repository provides a single-command bootstrap process that sets up your entire development environment, from installing packages to configuring your shell, managing SSH keys, and applying system preferences.
+
+## Quick Links
+
+<CardGroup cols={3}>
+  <Card
+    title="Quick Start"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get up and running in minutes with the one-command bootstrap
+  </Card>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Detailed installation guide for Linux and WSL
+  </Card>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/configuration/machine-types"
+  >
+    Learn how to customize your dotfiles setup
+  </Card>
+</CardGroup>
+
+## Key Features
+
+### Data-Driven Package Management
+Software installation is centralized in `ansible/group_vars/all.yml`, making it easy to scale and maintain your package list without creating new Ansible roles for every application.
+
+### Hybrid Work/Personal Environments
+Supports multiple machine types (personal, work, hybrid) with conditional Git identities and environment-specific AWS credentials pulled from Bitwarden.
+
+### Secrets & Encryption
+- **SSH Keys**: Automatically provisioned from Bitwarden Secure Notes into `~/.ssh/`
+- **AWS Credentials**: Fetched per-environment from Bitwarden using your work or personal email
+- **Age Encryption**: Sensitive files like `~/.ssh/config` are encrypted with `age` in the repository
+- **Automatic Key Management**: Age encryption key is retrieved from Bitwarden or generated and backed up automatically
+
+### Idempotent & Tested
+All scripts and playbooks are designed to be run multiple times safely. Continuous integration tests verify package installation, dotfile application, and encryption key setup on every commit.
+
+### Cross-Platform Support
+Portable across standard Linux distributions and Windows Subsystem for Linux (WSL), with platform-specific optimizations.
+
+### GNOME Desktop Customization
+Automatically configures GNOME settings including dark mode, custom clock format, and power management preferences.
+
+### Shell Environment
+Custom bash aliases, functions, Git configuration with conditional identities, and editor integration for chezmoi operations.
+
+### System Hardening
+Configures passwordless sudo for the current user and applies security best practices through Ansible.
+
+## Technology Stack
+
+<CardGroup cols={2}>
+  <Card title="chezmoi" icon="files">
+    Dotfile manager with templating, encryption, and cross-machine synchronization
+  </Card>
+  <Card title="Ansible" icon="server">
+    System configuration automation for package installation and settings
+  </Card>
+  <Card title="Bitwarden CLI" icon="key">
+    Secure secrets management for SSH keys, API credentials, and encryption keys
+  </Card>
+  <Card title="age" icon="lock">
+    Modern file encryption for sensitive dotfiles stored in version control
+  </Card>
+</CardGroup>
+
+## What Gets Automated?
+
+<AccordionGroup>
+  <Accordion title="System Configuration (via Ansible)">
+    - **Base Packages**: curl, git, htop, jq, and essential CLI tools
+    - **Workstation Packages**: google-chrome, terraform, and development tools
+    - **System Settings**: Passwordless sudo configuration
+    - **GNOME Desktop**: Dark mode, clock customization, power management
+  </Accordion>
+
+  <Accordion title="Secrets & Identity (via Bitwarden + age)">
+    - **SSH Keys**: Provisioned from Bitwarden into `~/.ssh/` with correct permissions
+    - **AWS Credentials**: Environment-specific credentials fetched by email
+    - **Encrypted Files**: SSH config and other sensitive files encrypted with age
+    - **Key Management**: Automatic retrieval or generation of age encryption key
+  </Accordion>
+
+  <Accordion title="Shell Environment (via chezmoi)">
+    - **Bash Aliases**: Custom helpers and Bitwarden session management
+    - **Git Config**: Conditional identities for personal vs work repositories
+    - **Editor Integration**: VS Code integration for edit, diff, and merge operations
+  </Accordion>
+</AccordionGroup>
+
+## Repository Structure
+
+```
+dotfiles/
+├── ansible/
+│   ├── group_vars/
+│   │   └── all.yml       # Centralized package and repo lists (Scalable!)
+│   ├── roles/
+│   │   ├── common/       # Generic installer (Engine)
+│   │   └── gnome/        # GNOME desktop settings
+│   ├── site.yml          # Main playbook
+│   ├── ansible.cfg
+│   └── requirements.yml
+├── tests/
+│   ├── fixtures/
+│   │   └── bw-data.json  # Fake Bitwarden vault for CI testing
+│   ├── mocks/
+│   │   └── bw            # Mock Bitwarden CLI binary
+│   ├── run-all.sh        # Test runner
+│   ├── test-dotfiles.sh  # Assert dotfiles were applied
+│   ├── test-packages.sh  # Assert packages are installed
+│   └── test-age-key.sh   # Assert age key setup
+├── private_dot_ssh/      # SSH config and keys (age-encrypted)
+├── dot_aws/              # AWS config and credentials (Bitwarden-sourced)
+├── .chezmoi.toml.tmpl    # chezmoi config with prompts and encryption
+├── bootstrap.sh          # One-shot setup script
+└── run_once_after_ansible.sh.tmpl
+```
+
+## Next Steps
+
+<Steps>
+  <Step title="Quick Start">
+    Follow the [Quick Start guide](/quickstart) to bootstrap your dotfiles on a fresh machine in minutes
+  </Step>
+  <Step title="Read Installation Details">
+    Review the [Installation guide](/installation) for detailed prerequisites and platform-specific instructions
+  </Step>
+  <Step title="Customize Configuration">
+    Learn how to customize your setup in the [Configuration guide](/configuration/machine-types)
+  </Step>
+</Steps>

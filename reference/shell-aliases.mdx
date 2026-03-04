@@ -1,0 +1,446 @@
+---
+title: Shell Aliases & Functions
+description: Complete reference of all bash aliases and custom functions
+---
+
+This page documents all shell aliases and bash functions defined in the dotfiles.
+
+## Bash Aliases
+
+Aliases are defined in `dot_bash_aliases.tmpl` and are automatically loaded by bash.
+
+### Basic Navigation
+
+Simple shortcuts for common commands.
+
+| Alias | Command | Description |
+|-------|---------|-------------|
+| `ll` | `ls -l` | Long listing format |
+| `..` | `cd ..` | Go up one directory |
+| `...` | `cd ../..` | Go up two directories |
+| `tailf` | `tail -f` | Follow log file output |
+
+**Example usage:**
+```bash
+ll                    # List files in long format
+..                    # cd ..
+...                   # cd ../..
+tailf /var/log/app.log # Tail log file
+```
+
+---
+
+### Network Utilities
+
+Network diagnostics and information.
+
+| Alias | Command | Description |
+|-------|---------|-------------|
+| `myip` | `curl -s ipinfo.io/ip` | Show public IPv4 address |
+| `myipv6` | `curl -s ifconfig.me` | Show public IPv6 address |
+| `ports` | `ss -puntl` | List all open ports |
+| `psgrep` | `ps aux \| grep` | Search running processes |
+| `netgrep` | `ss -puntl \| grep` | Search open ports |
+
+**Example usage:**
+```bash
+myip                  # Display: 203.0.113.42
+myipv6                # Display: 2001:db8::1
+ports                 # List all listening ports
+psgrep nginx          # Find nginx processes
+netgrep 8080          # Check if port 8080 is open
+```
+
+---
+
+### Safety Aliases
+
+Interactive prompts for destructive operations.
+
+| Alias | Command | Description |
+|-------|---------|-------------|
+| `rm` | `rm -I` | Prompt before removing 3+ files or recursive |
+| `cp` | `cp -i` | Prompt before overwrite |
+| `mv` | `mv -i` | Prompt before overwrite |
+| `ln` | `ln -i` | Prompt before overwrite |
+
+**Safety explanation:**
+- `-I` flag: Less intrusive than `-i`, only prompts for 3+ files or recursive delete
+- `-i` flag: Interactive mode, prompts before each overwrite
+
+**Example:**
+```bash
+rm *.txt              # Prompts if more than 3 files
+cp file.txt backup.txt # Prompts if backup.txt exists
+mv old.txt new.txt    # Prompts if new.txt exists
+```
+
+---
+
+### System Utilities
+
+Enhanced system commands with better defaults.
+
+| Alias | Command | Description |
+|-------|---------|-------------|
+| `grep` | `grep --color=auto` | Colorize grep output |
+| `fgrep` | `fgrep --color=auto` | Colorize fixed-string grep |
+| `egrep` | `egrep --color=auto` | Colorize extended grep |
+| `h` | `history` | Show command history |
+| `j` | `jobs -l` | List background jobs |
+| `c` | `clear` | Clear terminal screen |
+| `df` | `df -h` | Human-readable disk space |
+| `du` | `du -h` | Human-readable directory sizes |
+| `free` | `free -h` | Human-readable memory info |
+
+**Example usage:**
+```bash
+grep error /var/log/app.log  # Highlights "error" in red
+df                           # Shows disk space in GB/MB
+du -s *                      # Show directory sizes
+free                         # Display memory usage
+h                            # Show recent commands
+```
+
+---
+
+### Git Aliases
+
+Shortcuts for common git operations.
+
+| Alias | Command | Description |
+|-------|---------|-------------|
+| `gs` | `git status` | Show working tree status |
+| `gco` | `git checkout` | Switch branches or restore files |
+| `gcm` | `git commit -m` | Commit with message |
+| `gps` | `git push` | Push changes to remote |
+| `gpl` | `git pull` | Fetch and merge changes |
+| `gb` | `git branch` | List, create, or delete branches |
+| `gd` | `git diff` | Show changes |
+| `gl` | `git log --oneline` | Compact log view |
+| `ga` | `git add` | Add files to staging |
+| `git_clean_branches` | Complex | Remove merged branches |
+
+**Git clean branches:**
+```bash
+git_clean_branches
+# Expands to:
+# git remote prune origin && git branch --merged | grep -v "\*" | xargs -n 1 git branch -d
+```
+
+This alias:
+1. Removes stale remote branches
+2. Finds all merged local branches
+3. Excludes current branch (`*`)
+4. Deletes each merged branch
+
+**Example usage:**
+```bash
+gs                    # Check current status
+ga .                  # Add all changes
+gcm "Fix bug"         # Commit with message
+gps                   # Push to remote
+gco main              # Switch to main branch
+gl                    # View recent commits
+git_clean_branches    # Clean up old branches
+```
+
+---
+
+### Package Manager (Linux)
+
+Convenient apt shortcuts (only on Linux systems).
+
+| Alias | Command | Description |
+|-------|---------|-------------|
+| `install` | `sudo apt install` | Install packages |
+| `update` | `sudo apt update` | Update package lists |
+| `upgrade` | `sudo apt upgrade` | Upgrade installed packages |
+| `search` | `apt search` | Search for packages |
+| `show` | `apt show` | Show package details |
+
+**Conditional loading:**
+```bash
+{{- if eq .chezmoi.os "linux" }}
+alias install='sudo apt install'
+{{- end }}
+```
+
+**Example usage:**
+```bash
+search htop           # Find htop package
+show htop             # View package info
+install htop          # Install htop
+update                # Update package lists
+upgrade               # Upgrade all packages
+```
+
+---
+
+### Other Utilities
+
+| Alias | Command | Description |
+|-------|---------|-------------|
+| `backup` | `rsync -av --progress` | Backup files with progress |
+
+**Example usage:**
+```bash
+backup ~/documents /media/backup/documents
+# Shows progress bar while copying
+```
+
+---
+
+## WSL-Specific Aliases
+
+These aliases are only loaded when running in Windows Subsystem for Linux (WSL).
+
+**Detection:**
+```bash
+{{- if and (eq .chezmoi.os "linux") (contains "microsoft" .chezmoi.kernel.osrelease) }}
+# WSL aliases here
+{{- end }}
+```
+
+### Windows Interop
+
+Direct access to Windows executables from WSL.
+
+| Alias | Command | Description |
+|-------|---------|-------------|
+| `cmd` | `cmd.exe /c` | Run Windows Command Prompt commands |
+| `powershell` | `powershell.exe` | Launch PowerShell |
+| `pwsh` | `pwsh.exe` | Launch PowerShell Core |
+| `explorer` | `explorer.exe` | Open Windows Explorer |
+| `notepad` | `notepad.exe` | Open Notepad |
+| `open` | `explorer.exe` | Open files/folders in default app |
+
+**Example usage:**
+```bash
+cmd ipconfig          # Run Windows ipconfig
+explorer .            # Open current directory in Explorer
+open file.pdf         # Open PDF in default viewer
+notepad TODO.txt      # Edit in Notepad
+```
+
+### Quick Windows Paths
+
+Navigate to common Windows directories.
+
+| Alias | Path | Description |
+|-------|------|-------------|
+| `cdwin` | `/mnt/c/Users/{username}` | Windows user home |
+| `cddownloads` | `/mnt/c/Users/{username}/Downloads` | Downloads folder |
+| `cddesktop` | `/mnt/c/Users/{username}/Desktop` | Desktop folder |
+| `cddocuments` | `/mnt/c/Users/{username}/OneDrive/Documentos` | Documents folder |
+| `cdhome` | `/home/{username}` | WSL home directory |
+
+**Example usage:**
+```bash
+cddownloads           # cd to Windows Downloads
+cddesktop             # cd to Windows Desktop
+cdhome                # Return to WSL home
+```
+
+### Work-Specific (WSL)
+
+Only available when `machine_type` is "work" or "hybrid".
+
+| Alias | Command | Description |
+|-------|---------|-------------|
+| `work-explorer` | `explorer.exe {work_path}` | Open work folder in Explorer |
+| `cdwork` | `cd {work_repos_path}` | Navigate to work repositories |
+
+**Conditional loading:**
+```bash
+{{- if or (eq .machine_type "work") (eq .machine_type "hybrid") }}
+alias cdwork='cd /mnt/c/Users/{{ .chezmoi.username }}/OneDrive/Documentos/work/repos'
+{{- end }}
+```
+
+### Personal-Specific (WSL)
+
+Only available when `machine_type` is "personal" or "hybrid".
+
+| Alias | Command | Description |
+|-------|---------|-------------|
+| `cdrepos` | `cd {personal_repos}` | Navigate to personal repos |
+| `personal-explorer` | `explorer.exe {repos_path}` | Open repos in Explorer |
+
+---
+
+## Bash Functions
+
+Custom bash functions defined in `dot_bash_functions`.
+
+### `aws_env`
+
+Switch between AWS CLI profiles and export credentials as environment variables.
+
+**Signature:**
+```bash
+aws_env <profile_name>
+```
+
+**Source code:**
+```bash
+aws_env() {
+profiles=$(aws configure list-profiles)
+if echo "${profiles[@]:0}" | grep -q "^$1$" ; then
+   AWS_ACCESS_KEY_ID=$(aws configure get aws_access_key_id --profile "$1");
+   AWS_SECRET_ACCESS_KEY=$(aws configure get aws_secret_access_key --profile "$1");
+   AWS_DEFAULT_REGION=$(aws configure get region --profile "$1");
+   export AWS_PROFILE=$1
+   export AWS_ACCESS_KEY_ID
+   export AWS_SECRET_ACCESS_KEY
+   export AWS_DEFAULT_REGION
+   echo "$1 environment variables exported";
+   env | grep AWS_ | sort
+else
+   echo "profile '$1' not found"
+   echo "profiles availables:"
+   echo "${profiles[@]:0}"
+fi
+}
+```
+
+**Behavior:**
+1. Lists all available AWS profiles
+2. Checks if requested profile exists
+3. Reads credentials from `~/.aws/credentials`
+4. Exports environment variables:
+   - `AWS_PROFILE`
+   - `AWS_ACCESS_KEY_ID`
+   - `AWS_SECRET_ACCESS_KEY`
+   - `AWS_DEFAULT_REGION`
+5. Displays all AWS environment variables
+
+**Example usage:**
+```bash
+aws_env production
+# Output:
+# production environment variables exported
+# AWS_ACCESS_KEY_ID=AKIA...
+# AWS_DEFAULT_REGION=us-east-1
+# AWS_PROFILE=production
+# AWS_SECRET_ACCESS_KEY=***
+
+aws s3 ls
+# Now using production credentials
+```
+
+**Error handling:**
+```bash
+aws_env invalid
+# Output:
+# profile 'invalid' not found
+# profiles availables:
+# default
+# production
+# staging
+```
+
+---
+
+### `bw_unlock`
+
+Unlock Bitwarden vault and export session token.
+
+**Signature:**
+```bash
+bw_unlock
+```
+
+**Source code:**
+```bash
+bw_unlock() {
+    export BW_SESSION=$(bw unlock --raw)
+    echo "Bitwarden vault unlocked"
+}
+```
+
+**Behavior:**
+1. Prompts for master password
+2. Unlocks vault and gets session token
+3. Exports `BW_SESSION` environment variable
+4. All subsequent `bw` commands use this session
+
+**Example usage:**
+```bash
+bw_unlock
+# Prompts: Master password: ****
+# Output: Bitwarden vault unlocked
+
+bw get password github.com
+# Now works without re-entering password
+```
+
+**Session duration:** The session remains active until you close the terminal or log out.
+
+---
+
+### `bw_status`
+
+Check current Bitwarden vault status.
+
+**Signature:**
+```bash
+bw_status
+```
+
+**Source code:**
+```bash
+bw_status() {
+    bw status
+}
+```
+
+**Behavior:**
+Displays JSON output with vault status.
+
+**Example output:**
+```bash
+bw_status
+# Locked:
+# {"serverUrl":"https://bitwarden.com","lastSync":"2024-01-15T10:30:00.000Z","status":"locked"}
+
+# After bw_unlock:
+# {"serverUrl":"https://bitwarden.com","lastSync":"2024-01-15T10:30:00.000Z","status":"unlocked"}
+
+# Not logged in:
+# {"serverUrl":null,"lastSync":null,"status":"unauthenticated"}
+```
+
+**Status values:**
+- `unauthenticated` - Not logged in (run `bw login`)
+- `locked` - Logged in but vault is locked (run `bw_unlock`)
+- `unlocked` - Vault is unlocked and ready to use
+
+---
+
+## Loading Order
+
+1. `~/.bashrc` sources `~/.bash_aliases`
+2. `~/.bash_aliases` contains all aliases
+3. `~/.bash_functions` is sourced by bashrc
+4. Functions become available in all new shells
+
+## Customization
+
+To add your own aliases:
+
+```bash
+chezmoi edit ~/.bash_aliases
+# Add your aliases
+chezmoi apply
+source ~/.bash_aliases  # Reload in current shell
+```
+
+To add your own functions:
+
+```bash
+chezmoi edit ~/.bash_functions
+# Add your functions
+chezmoi apply
+source ~/.bash_functions  # Reload in current shell
+```

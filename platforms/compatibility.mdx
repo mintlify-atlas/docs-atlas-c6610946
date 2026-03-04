@@ -1,0 +1,407 @@
+---
+title: Compatibility Matrix
+description: System requirements, tested environments, and platform compatibility
+---
+
+This page provides detailed information about platform compatibility, system requirements, and tested environments for the dotfiles configuration.
+
+## Supported Platforms
+
+| Platform | Support Level | Notes |
+|----------|---------------|-------|
+| Ubuntu 24.04 LTS | **Primary** | Main testing environment in CI |
+| Ubuntu 22.04 LTS | **Supported** | Fully compatible |
+| Ubuntu 20.04 LTS | **Supported** | Fully compatible |
+| Debian 11+ | **Supported** | APT-based distributions |
+| WSL 2 (Ubuntu) | **Primary** | Full Windows interop support |
+| WSL 1 (Ubuntu) | **Limited** | No GUI support, limited systemd |
+| Other Debian-based | **Community** | Should work, not regularly tested |
+
+## System Requirements
+
+### Minimum Requirements
+
+- **OS**: Ubuntu 20.04+ or Debian 11+
+- **Architecture**: x86_64 (AMD64)
+- **RAM**: 512 MB (for basic dotfiles)
+- **Disk**: 500 MB free space
+- **Network**: Internet connection required
+- **Privileges**: sudo access
+
+### Recommended Requirements
+
+- **OS**: Ubuntu 24.04 LTS or WSL 2
+- **Architecture**: x86_64 (AMD64)
+- **RAM**: 2 GB or more
+- **Disk**: 2 GB free space (for full Ansible packages)
+- **Network**: Broadband connection
+- **Shell**: Bash 4.0+
+
+## Required Dependencies
+
+The bootstrap script automatically installs all required dependencies:
+
+### Core Dependencies
+
+| Package | Minimum Version | Purpose | Installation Method |
+|---------|----------------|---------|---------------------|
+| **curl** | 7.x+ | Download resources | `apt install curl` |
+| **git** | 2.x+ | Version control | `apt install git` |
+| **age** | 1.0+ | File encryption | `apt install age` |
+| **gnupg** | 2.x+ | GPG key management | `apt install gnupg` |
+| **ansible** | 2.12+ | Configuration management | PPA: `ppa:ansible/ansible` |
+
+### Package Managers
+
+| Tool | Required | Installation |
+|------|----------|-------------|
+| **APT** | Yes | Built-in on Debian/Ubuntu |
+| **snap** | Optional | `apt install snapd` |
+| **npm** | Optional | Fallback for Bitwarden CLI |
+
+### Dotfiles Tools
+
+| Tool | Version | Installation Method | Fallback |
+|------|---------|---------------------|----------|
+| **chezmoi** | Latest | snap (classic) | Install script to `~/.local/bin` |
+| **Bitwarden CLI** | Latest | snap | npm (`@bitwarden/cli`) |
+
+## Tested Environments
+
+### GitHub Actions CI
+
+All changes are automatically tested in the following environment:
+
+```yaml
+Container: ubuntu:24.04
+Options: --privileged
+Python: 3.12
+Ansible: Latest stable
+```
+
+**CI Pipeline Jobs:**
+
+1. **Ansible Lint**
+   - Validates playbook syntax
+   - Checks best practices
+   - Verifies collection dependencies
+
+2. **chezmoi Validation**
+   - Dry-run template initialization
+   - Validates template syntax
+
+3. **Integration Tests**
+   - Bootstrap script execution
+   - Ansible playbook application (non-GUI tasks)
+   - Dotfiles deployment
+   - Package verification
+   - File permissions validation
+   - age key setup verification
+
+### Local Testing
+
+Run the full integration test suite:
+
+```bash
+bash tests/run-all.sh
+```
+
+**Test Coverage:**
+- ✅ Dotfiles applied (`~/.bash_aliases`, `~/.gitconfig`, etc.)
+- ✅ Required packages installed
+- ✅ age key exists with 600 permissions
+- ✅ SSH configuration deployed
+- ✅ Ansible playbook idempotence
+
+## Package Compatibility
+
+### APT Repositories
+
+The dotfiles add the following external repositories:
+
+| Repository | Purpose | Key Management |
+|------------|---------|----------------|
+| `ppa:ansible/ansible` | Latest Ansible | Automatic via `add-apt-repository` |
+| Custom repos in `all.yml` | Additional software | GPG key de-armoring via `common` role |
+
+### Snap Support
+
+**Supported:**
+- Native Ubuntu installations
+- Some Ubuntu derivatives
+
+**Not Supported:**
+- WSL 1 (no snapd support)
+- WSL 2 (snapd often doesn't work in containers)
+- Minimal container environments
+
+**Fallback Strategy:**
+If snap is unavailable, the bootstrap script uses:
+- npm for Bitwarden CLI
+- Direct install script for chezmoi
+
+## Python Compatibility
+
+| Python Version | Ansible Support | Status |
+|----------------|-----------------|--------|
+| Python 3.12 | ✅ Yes | Primary (Ubuntu 24.04) |
+| Python 3.10 | ✅ Yes | Supported (Ubuntu 22.04) |
+| Python 3.8 | ✅ Yes | Supported (Ubuntu 20.04) |
+| Python 3.6 | ⚠️ Limited | EOL, not recommended |
+| Python 2.x | ❌ No | Not supported |
+
+## Shell Compatibility
+
+### Bash
+
+**Supported:** Bash 4.0+
+
+```bash
+bash --version
+# GNU bash, version 5.1.16(1)-release (x86_64-pc-linux-gnu)
+```
+
+### Other Shells
+
+| Shell | Status | Notes |
+|-------|--------|-------|
+| **zsh** | Not configured | Would require separate dotfiles |
+| **fish** | Not configured | Would require separate dotfiles |
+| **sh** | Partial | Bootstrap script uses `/bin/bash` |
+
+## WSL Compatibility
+
+### WSL Versions
+
+| Feature | WSL 1 | WSL 2 |
+|---------|-------|-------|
+| **Dotfiles support** | ✅ Yes | ✅ Yes |
+| **Windows interop** | ✅ Yes | ✅ Yes |
+| **snap support** | ❌ No | ⚠️ Limited |
+| **systemd support** | ❌ No | ✅ Yes (recent) |
+| **GUI apps** | ❌ No | ✅ Yes (WSLg) |
+| **Docker** | ⚠️ Limited | ✅ Yes |
+| **Performance** | Good for I/O | Better for compute |
+
+### WSL Detection
+
+Automatic detection via kernel release:
+
+```bash
+# WSL kernel contains "microsoft"
+uname -r
+# 5.15.90.1-microsoft-standard-WSL2
+```
+
+### Windows Version Requirements
+
+- **WSL 2**: Windows 10 version 1903+ or Windows 11
+- **WSLg (GUI)**: Windows 11 or Windows 10 Build 19044+
+
+## Desktop Environment Compatibility
+
+### GNOME
+
+**Supported:** GNOME 3.36+
+
+**Configured Settings:**
+- Dark mode (GTK theme)
+- Clock format and visibility
+- Power management
+- Window manager preferences
+
+**Requirements:**
+- `dconf` utility
+- Ansible collection: `community.general`
+
+### Other Desktop Environments
+
+| Environment | Status | Notes |
+|-------------|--------|-------|
+| **KDE Plasma** | Not configured | Would require separate Ansible role |
+| **XFCE** | Not configured | Would require separate Ansible role |
+| **Headless** | ✅ Supported | GUI tasks are skipped |
+| **WSL** | Not applicable | No native DE support |
+
+## Ansible Collection Dependencies
+
+### Required Collections
+
+```yaml
+# ansible/requirements.yml
+collections:
+  - name: community.general
+    version: ">=5.0.0"
+```
+
+**Installation:**
+```bash
+ansible-galaxy collection install -r ansible/requirements.yml
+```
+
+### Ansible Lint Compatibility
+
+**Supported:** ansible-lint 6.0+
+
+**Installation:**
+```bash
+pip install ansible-core ansible-lint
+```
+
+## Git Version Compatibility
+
+| Git Version | Status | Features |
+|-------------|--------|----------|
+| **2.35+** | ✅ Recommended | Conditional includes, full feature set |
+| **2.30+** | ✅ Supported | Core functionality |
+| **2.20+** | ⚠️ Limited | May lack some features |
+| **< 2.20** | ❌ Not recommended | Missing modern features |
+
+## Bitwarden CLI Compatibility
+
+### Version Requirements
+
+**Minimum:** 1.22.0  
+**Recommended:** Latest
+
+### Installation Methods
+
+| Method | Priority | Platforms |
+|--------|----------|----------|
+| **snap** | 1st choice | Native Ubuntu |
+| **npm** | Fallback | WSL, minimal systems |
+
+**Verify Installation:**
+```bash
+bw --version
+# 2024.x.x
+```
+
+## Known Limitations
+
+### Platform Limitations
+
+| Platform | Limitation | Workaround |
+|----------|------------|------------|
+| **WSL 1** | No snap support | Uses npm/install scripts |
+| **WSL 1** | No systemd | Not required for dotfiles |
+| **WSL 1** | No GUI | Use Windows GUI apps |
+| **Containers** | Limited snapd | Uses fallback methods |
+| **Containers** | No systemd | Use `--skip-tags systemd` |
+
+### Feature Limitations
+
+- **GNOME settings**: Require active desktop session
+- **AWS credentials**: Require Bitwarden vault access
+- **SSH keys**: Require Bitwarden secure notes
+- **GUI testing**: Skipped in CI environment
+
+## Upgrade Path
+
+### Ubuntu LTS Upgrades
+
+When upgrading Ubuntu LTS versions:
+
+1. **Before upgrade:**
+   ```bash
+   chezmoi archive > ~/dotfiles-backup.tar
+   ```
+
+2. **Perform system upgrade:**
+   ```bash
+   sudo do-release-upgrade
+   ```
+
+3. **After upgrade:**
+   ```bash
+   # Reinstall Ansible (may need PPA re-add)
+   sudo add-apt-repository --yes --update ppa:ansible/ansible
+   sudo apt install -y ansible
+   
+   # Re-run setup
+   cd ~/.local/share/chezmoi
+   ansible-playbook ansible/site.yml
+   chezmoi apply
+   ```
+
+### WSL Upgrades
+
+**WSL 1 to WSL 2:**
+
+```powershell
+# In PowerShell (Administrator)
+wsl --set-version Ubuntu 2
+```
+
+No dotfiles changes needed; WSL-specific features will continue working.
+
+## Architecture Support
+
+| Architecture | Status | Notes |
+|--------------|--------|-------|
+| **x86_64 (AMD64)** | ✅ Fully supported | Primary architecture |
+| **ARM64** | ⚠️ Untested | May work with ARM-compatible packages |
+| **i386** | ❌ Not supported | 32-bit deprecated |
+
+## Troubleshooting Compatibility
+
+### Check Your Environment
+
+```bash
+# OS and version
+lsb_release -a
+
+# Kernel (WSL detection)
+uname -r
+
+# Architecture
+uname -m
+
+# Bash version
+bash --version
+
+# Python version
+python3 --version
+
+# Git version
+git --version
+```
+
+### Verify Dependencies
+
+```bash
+# Check if tools are installed
+command -v curl && echo "curl: OK"
+command -v git && echo "git: OK"
+command -v age && echo "age: OK"
+command -v ansible && echo "ansible: OK"
+command -v chezmoi && echo "chezmoi: OK"
+command -v bw && echo "bw: OK"
+```
+
+### Common Issues
+
+**Ansible not found:**
+```bash
+sudo add-apt-repository --yes --update ppa:ansible/ansible
+sudo apt install -y ansible
+```
+
+**chezmoi not in PATH (fallback install):**
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+```
+
+**Bitwarden CLI not working:**
+```bash
+# Try npm installation
+sudo apt install -y nodejs npm
+sudo npm install -g @bitwarden/cli
+```
+
+## Next Steps
+
+- See [Linux Support](/platforms/linux) for native Linux setup
+- See [WSL Support](/platforms/wsl) for Windows integration
+- Review [Quick Start Guide](/quickstart) for installation

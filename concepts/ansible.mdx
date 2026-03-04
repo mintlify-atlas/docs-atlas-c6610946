@@ -1,0 +1,547 @@
+---
+title: Ansible Automation
+description: Understanding the data-driven Ansible approach for system configuration
+---
+
+This dotfiles system uses a **data-driven Ansible architecture** that separates configuration data from implementation logic, making it easy to add software without creating new roles.
+
+## Why Ansible?
+
+Ansible handles system-level configuration that requires root privileges:
+
+<CardGroup cols={2}>
+  <Card title="Package Management" icon="box">
+    APT packages, Snap packages, external repositories
+  </Card>
+  <Card title="System Settings" icon="gear">
+    Sudo configuration, system hardening
+  </Card>
+  <Card title="Desktop Environment" icon="desktop">
+    GNOME preferences, power management
+  </Card>
+  <Card title="Idempotency" icon="rotate">
+    Safe to run multiple times, only changes what's needed
+  </Card>
+</CardGroup>
+
+<Info>
+While chezmoi manages files in your home directory, Ansible manages the system environment those files run in.
+</Info>
+
+## Data-Driven Architecture
+
+### The Traditional Problem
+
+Most Ansible setups create a separate role for each application:
+
+```yaml
+# Traditional approach ❌
+roles:
+  - chrome
+  - vscode
+  - terraform
+  - docker
+  - slack
+  # ... 50 more roles ...
+```
+
+This leads to:
+- Role proliferation (hundreds of tiny roles)
+- Duplicate package installation logic
+- Difficult maintenance
+- Slow playbook execution
+
+### The Data-Driven Solution
+
+This project uses a **universal `common` role** that reads configuration from centralized data files:
+
+```yaml
+# Data-driven approach ✅
+roles:
+  - common  # Installs everything from group_vars/all.yml
+  - gnome   # Configures desktop (complex logic justified)
+```
+
+<Tip>
+To add new software, just update `ansible/group_vars/all.yml` instead of creating a new role.
+</Tip>
+
+## Configuration File Structure
+
+### group_vars/all.yml
+
+This is the **single source of truth** for all software installations:
+
+```yaml ansible/group_vars/all.yml
+# Software Repositories
+external_repositories:
+  - name: hashicorp
+    key_url: https://apt.releases.hashicorp.com/gpg
+    repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_facts['distribution_release'] }} main"
+    keyring: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+  - name: vscode
+    key_url: https://packages.microsoft.com/keys/microsoft.asc
+    repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/code stable main"
+    keyring: /usr/share/keyrings/microsoft.gpg
+
+# Main Package List
+workstation_packages:
+  - code
+  - curl
+  - git
+  - google-chrome-stable
+  - htop
+  - jq
+  - terraform
+  - unzip
+
+# Snap Package List
+snap_packages:
+  - name: aws-cli
+    classic: true
+```
+
+### Data Structure Breakdown
+
+<Tabs>
+  <Tab title="external_repositories">
+    Defines third-party APT repositories:
+
+    | Field | Purpose |
+    |-------|--------|
+    | `name` | Repository identifier (used for filename) |
+    | `key_url` | URL to GPG signing key |
+    | `repo` | APT source line (supports Jinja2 variables) |
+    | `keyring` | Where to store the de-armored GPG key |
+
+    <Note>
+    The `common` role automatically downloads the GPG key, de-armors it using `gpg --dearmor`, and configures the APT source.
+    </Note>
+  </Tab>
+  
+  <Tab title="workstation_packages">
+    Simple list of APT package names:
+
+    ```yaml
+    workstation_packages:
+      - package-one
+      - package-two
+      - package-three
+    ```
+
+    These are installed via `apt install` after repositories are configured.
+  </Tab>
+  
+  <Tab title="snap_packages">
+    Snap packages with optional `classic` confinement:
+
+    ```yaml
+    snap_packages:
+      - name: aws-cli
+        classic: true      # Installed with --classic
+      - name: spotify
+        classic: false     # Standard confinement
+    ```
+  </Tab>
+</Tabs>
+
+## The Common Role
+
+The `common` role is the **universal installer engine** that processes the data from `group_vars/all.yml`.
+
+### Task Breakdown
+
+<Steps>
+  <Step title="Create Keyring Directories">
+    ```yaml
+    - name: Ensure keyrings directory exists
+      ansible.builtin.file:
+        path: "{{ item.keyring | dirname }}"
+        state: directory
+        mode: "0755"
+      loop: "{{ external_repositories }}"
+    ```
+
+    Creates `/usr/share/keyrings/` or `/etc/apt/keyrings/` as needed.
+  </Step>
+  
+  <Step title="Download and De-Armor GPG Keys">
+    ```yaml
+    - name: Download and de-armor repository keys
+      ansible.builtin.shell: |
+        set -o pipefail
+        curl -fsSL {{ item.key_url }} | gpg --dearmor --yes -o {{ item.keyring }}
+      args:
+        creates: "{{ item.keyring }}"
+        executable: /bin/bash
+      loop: "{{ external_repositories }}"
+    ```
+
+    - Downloads ASCII-armored GPG keys
+    - Converts to binary format (required for modern APT)
+    - Uses `creates` for idempotency (won't re-download)
+  </Step>
+  
+  <Step title="Add APT Repositories">
+    ```yaml
+    - name: Add external software repositories
+      ansible.builtin.apt_repository:
+        filename: "{{ item.name }}"
+        repo: "{{ item.repo }}"
+        state: present
+        update_cache: true
+      loop: "{{ external_repositories }}"
+    ```
+
+    Creates `/etc/apt/sources.list.d/<name>.list` files.
+  </Step>
+  
+  <Step title="Install APT Packages">
+    ```yaml
+    - name: Ensure all workstation packages are installed
+      ansible.builtin.apt:
+        name: "{{ workstation_packages }}"
+        state: present
+        update_cache: true
+    ```
+
+    Installs all packages in a single transaction for efficiency.
+  </Step>
+  
+  <Step title="Install Snap Packages">
+    ```yaml
+    - name: Ensure all workstation snap packages are installed
+      community.general.snap:
+        name: "{{ item.name }}"
+        classic: "{{ item.classic | default(false) }}"
+        state: present
+      loop: "{{ snap_packages }}"
+    ```
+  </Step>
+  
+  <Step title="Configure Passwordless Sudo">
+    ```yaml
+    - name: Configure passwordless sudo for the user
+      ansible.builtin.copy:
+        content: "{{ ansible_facts['user_id'] }} ALL=(ALL) NOPASSWD:ALL"
+        dest: "/etc/sudoers.d/{{ ansible_facts['user_id'] }}"
+        mode: "0440"
+        validate: /usr/sbin/visudo -cf %s
+    ```
+
+    Creates a sudoers drop-in file for the current user.
+  </Step>
+</Steps>
+
+<Warning>
+The shell task with `gpg --dearmor` requires `set -o pipefail` and `executable: /bin/bash` to pass `ansible-lint` rules.
+</Warning>
+
+## Playbook Structure
+
+### site.yml
+
+The main playbook is remarkably simple:
+
+```yaml ansible/site.yml
+---
+- name: Configure System
+  hosts: local
+  connection: local
+  become: true
+  roles:
+    - role: common
+      tags: [common]
+    - role: gnome
+      tags: [gnome]
+```
+
+<Accordion title="Playbook Options Explained">
+  - **`hosts: local`**: Targets `localhost` (defined in `ansible.cfg`)
+  - **`connection: local`**: Don't use SSH, run directly
+  - **`become: true`**: Escalate to root (uses `sudo`)
+  - **`tags`**: Allow selective execution (`--tags common`)
+</Accordion>
+
+### Running the Playbook
+
+The playbook is automatically invoked by chezmoi:
+
+```bash run_once_after_ansible.sh.tmpl
+#!/bin/bash
+echo "Running Ansible playbooks..."
+cd {{ .chezmoi.sourceDir }}/ansible
+ansible-playbook site.yml --ask-become-pass
+```
+
+You can also run it manually:
+
+```bash
+cd ~/.local/share/chezmoi/ansible
+ansible-playbook site.yml --ask-become-pass
+
+# Or with tags
+ansible-playbook site.yml --tags common
+ansible-playbook site.yml --tags gnome
+```
+
+## Adding New Software
+
+### Example: Adding Docker
+
+<Steps>
+  <Step title="Add Repository to group_vars/all.yml">
+    ```yaml
+    external_repositories:
+      - name: docker
+        key_url: https://download.docker.com/linux/ubuntu/gpg
+        repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_facts['distribution_release'] }} stable"
+        keyring: /usr/share/keyrings/docker.gpg
+    ```
+  </Step>
+  
+  <Step title="Add Packages">
+    ```yaml
+    workstation_packages:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    ```
+  </Step>
+  
+  <Step title="Apply Changes">
+    ```bash
+    chezmoi apply
+    ```
+
+    Chezmoi will trigger the Ansible playbook, which will:
+    1. Download and install Docker's GPG key
+    2. Add Docker's APT repository
+    3. Install Docker packages
+  </Step>
+</Steps>
+
+<Tip>
+No new role needed! The `common` role handles everything automatically.
+</Tip>
+
+### When to Create a New Role
+
+Only create dedicated roles for:
+
+<AccordionGroup>
+  <Accordion title="Complex Configuration">
+    **Example**: GNOME desktop settings
+    
+    ```yaml
+    - name: Set GNOME dark mode
+      community.general.dconf:
+        key: "/org/gnome/desktop/interface/color-scheme"
+        value: "'prefer-dark'"
+    ```
+
+    Requires multiple `dconf` tasks with specific key-value pairs.
+  </Accordion>
+  
+  <Accordion title="Multi-Step Setup">
+    **Example**: Database server initialization
+    
+    - Install package
+    - Create database users
+    - Import schema
+    - Configure authentication
+  </Accordion>
+  
+  <Accordion title="Alternative Package Managers">
+    **Example**: Installing from source
+    
+    - Download tarball
+    - Extract and compile
+    - Install to `/usr/local/`
+  </Accordion>
+</AccordionGroup>
+
+## Ansible Configuration
+
+### ansible.cfg
+
+```ini ansible/ansible.cfg
+[defaults]
+inventory = ./inventory
+host_key_checking = False
+retry_files_enabled = False
+
+[inventory]
+enable_plugins = host_list, yaml, ini
+```
+
+### inventory
+
+```ini ansible/inventory
+[local]
+localhost ansible_connection=local
+```
+
+This defines `localhost` as the only managed host.
+
+## Testing and Linting
+
+### Ansible Lint
+
+The project uses `ansible-lint` to enforce best practices:
+
+```bash
+# Setup virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install ansible-dev-tools
+
+# Run linting
+ansible-lint ansible/site.yml
+```
+
+### Common Lint Rules
+
+<Tabs>
+  <Tab title="risky-shell-pipe">
+    **Problem**: Using pipes in shell tasks without `set -o pipefail`
+
+    ```yaml
+    # ❌ Fails lint
+    - shell: curl -fsSL {{ url }} | gpg --dearmor
+    ```
+
+    ```yaml
+    # ✅ Passes lint
+    - shell: |
+        set -o pipefail
+        curl -fsSL {{ url }} | gpg --dearmor
+      args:
+        executable: /bin/bash
+    ```
+  </Tab>
+  
+  <Tab title="yaml[truthy]">
+    **Problem**: Using `yes`/`no` instead of `true`/`false`
+
+    ```yaml
+    # ❌ Fails lint
+    classic: yes
+    ```
+
+    ```yaml
+    # ✅ Passes lint
+    classic: true
+    ```
+  </Tab>
+  
+  <Tab title="fqcn[action]">
+    **Problem**: Not using fully qualified collection names
+
+    ```yaml
+    # ❌ Fails lint
+    - apt: name=git
+    ```
+
+    ```yaml
+    # ✅ Passes lint
+    - ansible.builtin.apt:
+        name: git
+    ```
+  </Tab>
+</Tabs>
+
+### Integration Tests
+
+The `tests/test-packages.sh` script verifies installations:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+echo "Testing package installations..."
+
+# Check critical binaries
+command -v git >/dev/null || { echo "ERROR: git not installed"; exit 1; }
+command -v code >/dev/null || { echo "ERROR: vscode not installed"; exit 1; }
+command -v terraform >/dev/null || { echo "ERROR: terraform not installed"; exit 1; }
+
+echo "All packages installed successfully!"
+```
+
+<Warning>
+When you add a new package to `workstation_packages`, also add a corresponding check to `test-packages.sh`.
+</Warning>
+
+## Idempotency Guarantees
+
+Ansible tasks are designed to be safe to run multiple times:
+
+| Task | Idempotency Mechanism |
+|------|----------------------|
+| GPG key download | `args.creates` - skips if keyring exists |
+| APT repository | `state: present` - only adds if missing |
+| Package install | `state: present` - skips if already installed |
+| Sudoers file | `copy` module - only writes if content differs |
+| GNOME settings | `dconf` - only changes if value differs |
+
+<Info>
+You can run `chezmoi apply` (which triggers Ansible) as many times as you want. It will only make changes when needed.
+</Info>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Data Organization">
+    - Keep `group_vars/all.yml` alphabetically sorted
+    - Group related packages together with comments
+    - Use consistent naming (kebab-case for repo names)
+  </Accordion>
+  
+  <Accordion title="Repository Management">
+    - Always specify `signed-by` in repo strings
+    - Use modern keyring locations (`/usr/share/keyrings/`)
+    - De-armor GPG keys (binary format is required)
+  </Accordion>
+  
+  <Accordion title="Task Writing">
+    - Use fully qualified module names (`ansible.builtin.*`)
+    - Add `set -o pipefail` to shell tasks with pipes
+    - Use `true`/`false`, not `yes`/`no`
+    - Include `tags` for selective execution
+  </Accordion>
+  
+  <Accordion title="Testing">
+    - Run `ansible-lint` before committing
+    - Update integration tests when adding packages
+    - Test in a VM or container before production
+  </Accordion>
+</AccordionGroup>
+
+## Architecture Benefits
+
+This data-driven approach provides:
+
+✅ **Scalability**: Add 100 packages by editing one file  
+✅ **Maintainability**: One role to update instead of dozens  
+✅ **Performance**: Single APT transaction instead of sequential installs  
+✅ **Clarity**: Configuration is data, not code  
+✅ **Flexibility**: Easy to fork and customize for different machines  
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Add Packages" icon="plus" href="/ansible/adding-software">
+    Learn how to add your own software
+  </Card>
+  <Card title="Secrets Management" icon="key" href="/concepts/secrets">
+    Understand Bitwarden integration
+  </Card>
+  <Card title="GNOME Role" icon="desktop" href="/ansible/gnome-settings">
+    Customize desktop environment settings
+  </Card>
+  <Card title="Ansible Docs" icon="book" href="https://docs.ansible.com/">
+    Official Ansible documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,174 @@
+---
+title: Ansible Roles
+description: Available Ansible roles and their responsibilities
+---
+
+This dotfiles setup uses two main roles: `common` for software installation and `gnome` for desktop environment configuration.
+
+## Common Role
+
+The `common` role handles all standard software installation and system configuration. It's designed to be universal and data-driven.
+
+### Responsibilities
+
+- Configure external APT repositories
+- Install APT packages
+- Install Snap packages
+- Configure passwordless sudo
+
+### Tasks Overview
+
+From `ansible/roles/common/tasks/main.yml`:
+
+```yaml
+---
+- name: Ensure keyrings directory exists
+  ansible.builtin.file:
+    path: "{{ item.keyring | dirname }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ external_repositories }}"
+  when: external_repositories is defined and item.keyring is defined
+
+- name: Download and de-armor repository keys
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL {{ item.key_url }} | gpg --dearmor --yes -o {{ item.keyring }}
+  args:
+    creates: "{{ item.keyring }}"
+    executable: /bin/bash
+  loop: "{{ external_repositories }}"
+  when: external_repositories is defined and item.keyring is defined
+
+- name: Add external software repositories
+  ansible.builtin.apt_repository:
+    filename: "{{ item.name }}"
+    repo: "{{ item.repo }}"
+    state: present
+    update_cache: true
+  loop: "{{ external_repositories }}"
+  when: external_repositories is defined
+
+- name: Ensure all workstation packages are installed
+  ansible.builtin.apt:
+    name: "{{ workstation_packages }}"
+    state: present
+    update_cache: true
+  when: workstation_packages is defined
+
+- name: Ensure all workstation snap packages are installed
+  community.general.snap:
+    name: "{{ item.name }}"
+    classic: "{{ item.classic | default(false) }}"
+    state: present
+  loop: "{{ snap_packages }}"
+  when: snap_packages is defined
+  tags: [snap, aws]
+
+- name: Configure passwordless sudo for the user
+  ansible.builtin.copy:
+    content: "{{ ansible_facts['user_id'] }} ALL=(ALL) NOPASSWD:ALL"
+    dest: "/etc/sudoers.d/{{ ansible_facts['user_id'] }}"
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+```
+
+### Key Features
+
+**Repository Management:**
+- Automatically creates keyring directories
+- Downloads GPG keys from URLs
+- De-armors keys (converts ASCII to binary format)
+- Adds repositories with proper signed-by configuration
+
+**Package Installation:**
+- Installs all packages from `workstation_packages` list
+- Handles Snap packages with classic confinement support
+- Updates APT cache automatically
+
+**Security:**
+- Configures passwordless sudo with proper validation
+- Uses `visudo` to validate sudoers configuration
+- Sets correct file permissions (0440 for sudoers)
+
+### Data Sources
+
+The common role reads all configuration from `ansible/group_vars/all.yml`:
+
+- `external_repositories` - List of third-party APT repositories
+- `workstation_packages` - List of APT packages to install
+- `snap_packages` - List of Snap packages to install
+
+## GNOME Role
+
+The `gnome` role configures GNOME desktop environment settings using dconf.
+
+### Responsibilities
+
+- Configure GNOME appearance (dark mode)
+- Customize clock display settings
+- Manage power settings
+
+### Tasks Overview
+
+From `ansible/roles/gnome/tasks/main.yml`:
+
+```yaml
+---
+- name: Include settings.yml
+  ansible.builtin.include_tasks:
+    file: settings.yml
+    apply:
+      tags:
+        - settings
+  tags:
+    - gnome
+    - settings
+```
+
+The role includes `settings.yml` which contains all GNOME configuration tasks.
+
+### Settings Applied
+
+See the [GNOME Settings](/ansible/gnome-settings) page for detailed information about all configured settings.
+
+## Running Individual Roles
+
+```bash
+# Run only the common role
+ansible-playbook ansible/site.yml --tags common
+
+# Run only the GNOME role
+ansible-playbook ansible/site.yml --tags gnome
+
+# Run GNOME settings specifically
+ansible-playbook ansible/site.yml --tags settings
+```
+
+## When to Create a New Role
+
+<Warning>
+Only create a new role when absolutely necessary. The data-driven approach is preferred.
+</Warning>
+
+Create a new role only when software requires:
+
+1. **Complex configuration files** - Multiple templates with interdependencies
+2. **Multi-step setup** - Installation process that can't be handled by package managers
+3. **Custom package managers** - Beyond standard APT/Snap (e.g., manual binary downloads)
+4. **Extensive customization** - Like GNOME settings that use dconf
+
+For standard package installation, always use the `common` role with `group_vars/all.yml`.
+
+## Role Dependencies
+
+Both roles require:
+
+- `ansible.builtin` collection (included with Ansible)
+- `community.general` collection (for snap and dconf modules)
+
+Install dependencies:
+
+```bash
+ansible-galaxy collection install -r ansible/requirements.yml
+```

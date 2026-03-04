@@ -1,0 +1,223 @@
+---
+title: Bootstrap Script Reference
+description: Complete reference for bootstrap.sh installation script
+---
+
+The `bootstrap.sh` script is a one-shot installation script that prepares a fresh Ubuntu system for dotfiles management. It installs all necessary dependencies and sets up the encryption keys.
+
+## Overview
+
+The bootstrap script performs the following operations:
+
+1. Safety check (prevents running as root)
+2. System package installation
+3. Tool installation (Ansible, Bitwarden CLI, chezmoi)
+4. Bitwarden authentication
+5. Age encryption key setup
+
+## Usage
+
+```bash
+sudo apt update && sudo apt install -y curl
+bash -c "$(curl -fsLS https://raw.githubusercontent.com/yurgenlira/dotfiles/main/bootstrap.sh)"
+```
+
+## Script Breakdown
+
+### Step 0: Root Check
+
+```bash
+if [ "$(id -u)" -eq 0 ]; then
+    echo "Error: Please do not run this script as root/sudo."
+    echo "It will ask for your password when needed for package installation."
+    exit 1
+fi
+```
+
+**Purpose:** Ensures the script is not run with sudo/root privileges. The script will request sudo permissions only when needed for package installation.
+
+**Why:** Running the entire script as root would create files and directories owned by root in your home directory, causing permission issues.
+
+---
+
+### Step 1: System Dependencies
+
+```bash
+sudo apt-get update
+sudo apt-get install -y curl git age gnupg software-properties-common snapd
+```
+
+**Packages installed:**
+
+| Package | Purpose |
+|---------|----------|
+| `curl` | Download files from the internet |
+| `git` | Version control for dotfiles repository |
+| `age` | File encryption/decryption |
+| `gnupg` | GPG key management for apt repositories |
+| `software-properties-common` | Manage PPAs and apt repositories |
+| `snapd` | Snap package manager daemon |
+
+---
+
+### Step 2: Install Ansible
+
+```bash
+if ! command -v ansible &> /dev/null; then
+    echo "Installing Ansible..."
+    sudo add-apt-repository --yes --update ppa:ansible/ansible
+    sudo apt-get install -y ansible
+fi
+```
+
+**Purpose:** Installs Ansible from the official PPA if not already present.
+
+**Idempotency:** Checks if `ansible` command exists before attempting installation.
+
+**Why Ansible:** Used to configure system packages, GNOME settings, and ensure consistent environment setup across machines.
+
+---
+
+### Step 3: Install Bitwarden CLI
+
+```bash
+if ! command -v bw >/dev/null 2>&1; then
+    if command -v snap >/dev/null 2>&1 && snap version >/dev/null 2>&1; then
+        echo "Installing Bitwarden CLI via snap..."
+        sudo snap install bw
+    else
+        echo "Installing Bitwarden CLI via npm..."
+        sudo apt-get install -y nodejs npm
+        sudo npm install -g @bitwarden/cli
+    fi
+fi
+```
+
+**Purpose:** Installs the Bitwarden CLI for secrets management.
+
+**Installation methods:**
+1. **Preferred:** Snap (if available)
+2. **Fallback:** npm global install
+
+**Idempotency:** Only installs if `bw` command is not found.
+
+---
+
+### Step 4: Install chezmoi
+
+```bash
+if ! command -v chezmoi >/dev/null 2>&1; then
+    if command -v snap >/dev/null 2>&1 && snap version >/dev/null 2>&1; then
+        echo "Installing chezmoi via snap..."
+        sudo snap install chezmoi --classic
+    else
+        echo "Installing chezmoi via install script..."
+        sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin"
+        export PATH="$HOME/.local/bin:$PATH"
+    fi
+fi
+```
+
+**Purpose:** Installs chezmoi for dotfiles management.
+
+**Installation methods:**
+1. **Preferred:** Snap with `--classic` confinement (full system access)
+2. **Fallback:** Official install script to `~/.local/bin`
+
+**Note:** The fallback method adds `~/.local/bin` to PATH for the current session.
+
+---
+
+### Step 5: Bitwarden Login & Unlock
+
+```bash
+if bw status | grep -q '"status":"unauthenticated"'; then
+    echo "Logging into Bitwarden..."
+    bw login
+fi
+
+if bw status | grep -q '"status":"locked"'; then
+    echo "Unlocking Bitwarden..."
+    BW_SESSION=$(bw unlock --raw)
+    export BW_SESSION
+    bw sync
+fi
+```
+
+**Purpose:** Authenticates and unlocks your Bitwarden vault.
+
+**Flow:**
+1. Check if unauthenticated → prompt for login credentials
+2. Check if vault is locked → unlock and export session token
+3. Sync vault data after unlock
+
+**Session token:** The `BW_SESSION` environment variable allows subsequent `bw` commands to access the unlocked vault without re-entering the password.
+
+---
+
+### Step 6: Age Key Setup
+
+```bash
+mkdir -p "$HOME/.config/chezmoi"
+if [ ! -f "$HOME/.config/chezmoi/key.txt" ]; then
+    echo "Checking for age key in Bitwarden..."
+    if bw get notes "chezmoi-age-key" > "$HOME/.config/chezmoi/key.txt" 2>/dev/null; then
+        echo "Successfully retrieved age key from Bitwarden."
+    else
+        echo "Could not find 'chezmoi-age-key' in Bitwarden."
+        echo "Generating a new one instead..."
+        age-keygen -o "$HOME/.config/chezmoi/key.txt"
+        echo "IMPORTANT: Save the following content as a Secure Note named 'chezmoi-age-key' in Bitwarden:"
+        cat "$HOME/.config/chezmoi/key.txt"
+    fi
+fi
+sudo chown -R "$(id -u):$(id -g)" "$HOME/.config/chezmoi"
+chmod 600 "$HOME/.config/chezmoi/key.txt"
+```
+
+**Purpose:** Sets up the age encryption key for decrypting sensitive dotfiles.
+
+**Flow:**
+1. Create chezmoi config directory
+2. Try to retrieve existing key from Bitwarden Secure Note named `chezmoi-age-key`
+3. If not found, generate a new key and display it for backup
+4. Fix ownership and permissions
+
+**Security:**
+- Key file has `600` permissions (owner read/write only)
+- Ownership explicitly set to current user (not root)
+
+**Important:** If a new key is generated, you MUST save it to Bitwarden as a Secure Note named `chezmoi-age-key` for future machines.
+
+---
+
+## Next Steps
+
+After bootstrap completes, initialize your dotfiles:
+
+```bash
+chezmoi init --apply yurgenlira
+```
+
+This will:
+1. Clone the dotfiles repository
+2. Prompt for configuration (name, email, machine type)
+3. Decrypt encrypted files using your age key
+4. Apply dotfiles to your home directory
+5. Run the Ansible playbook to configure system packages and settings
+
+## Environment Variables
+
+| Variable | Set By | Purpose |
+|----------|--------|----------|
+| `BW_SESSION` | Step 5 | Bitwarden session token for vault access |
+| `PATH` | Step 4 | Includes `~/.local/bin` if chezmoi installed via script |
+
+## Error Handling
+
+The script uses `set -euo pipefail` to:
+- Exit on any command failure (`-e`)
+- Treat unset variables as errors (`-u`)
+- Propagate pipe failures (`-o pipefail`)
+
+If any step fails, the script will immediately exit and display the error.
